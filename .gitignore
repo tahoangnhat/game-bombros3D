@@ -1,7 +1,6 @@
-# Unity .gitignore Template
-# Source: https://github.com/github/gitignore/blob/main/Unity.gitignore
+﻿# Unity + backend ignore rules
 
-# Unity generated folders
+# Unity generated folders and caches
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/
@@ -9,39 +8,73 @@
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
 
-# Synty Assets - KHÔNG commit package (rất quan trọng)
-Assets/SyntyStudios/
-Assets/PolygonCity/
-Assets/PolygonAdventure/
-Assets/PolygonKnights/
-Assets/PolygonPrototype/
-Assets/_Recovery/   # Optional: nếu không muốn commit file backup
-
-# Meta files của Synty (nếu có)
-Assets/SyntyStudios/**/*.meta
-Assets/PolygonCity/**/*.meta
-Assets/PolygonAdventure/**/*.meta
-
-# Other common ignores
+# Unity build artifacts and common generated files
 *.log
+*.tmp
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.user
+*.userprefs
+*.suo
 *.csproj
 *.unityproj
 *.sln
-*.suo
-*.tmp
-*.user
-*.userprefs
+*.slnx
+*.app
+*.apk
+*.aab
+*.unitypackage
+*.unitypackage.meta
+*.blend1
+*.blend1.meta
+
+# Visual Studio / Rider / IDE cache
 .vs/
+.idea/
+*.DotSettings.user
+
+# Gradle / Java local build outputs
 .gradle/
-ExportedObj/
-consulo/
-MemoryCaptures/
-Recordings/
+backend/target/
 
-# Addressables
-/Assets/StreamingAssets/aa*
-/Assets/AddressableAssetsData/*
+# Unity Addressables / Visual Scripting generated content
+/[Aa]ssets/StreamingAssets/aa*
+/[Aa]ssets/Addressables_Temp/
+/[Aa]ssets/AddressableAssetsData/link.xml*
+/[Aa]ssets/AddressableAssetsData/*/*.bin*
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Flow/UnitOptions.db
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Flow/UnitOptions.db.meta
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Property Providers
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Property Providers.meta
 
-# Visual Scripting
-/Assets/Unity.VisualScripting.Generated/
+# Auto-generated test scenes and crash files
+/[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
+sysinfo.txt
+mono_crash.*
+crashlytics-build.properties
+
+# TextMesh Pro example assets. Keep only what your UI actually uses.
+Assets/TextMesh Pro/
+Assets/TextMesh Pro*.meta
+
+# Synty / Polygon packs. Team should install these locally instead of committing them.
+Assets/SyntyStudios/
+Assets/SyntyStudios*.meta
+Assets/Polygon*/
+Assets/Polygon*.meta
+
+# Recovery / backup content
+Assets/_Recovery/
+Assets/_Recovery/*.unity
+Assets/_Recovery/*.meta
+
+# Optional asset store content
+# /[Aa]ssets/AssetStoreTools*
