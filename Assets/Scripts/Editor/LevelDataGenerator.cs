@@ -75,8 +75,7 @@ public class LevelDataGenerator
             }
         }
 
-        // Fill destructible walls (bình/cây) - skip player spawn area
-        // Spawn area: (1-2, 1-2) và (width-3 to width-2, height-3 to height-2)
+        // Fill destructible walls (bình/cây) - skip player spawn areas
         for (int x = 1; x < width - 1; x++)
         {
             for (int z = 1; z < height - 1; z++)
@@ -84,8 +83,12 @@ public class LevelDataGenerator
                 CellType current = GetCell(layout, x, z, width);
                 if (current == CellType.Empty)
                 {
-                    // Skip spawn corners
-                    bool isSpawnCorner = (x <= 2 && z <= 2) || (x >= width - 3 && z >= height - 3);
+                    // Keep four corner spawn areas clear.
+                    bool isSpawnCorner =
+                        (x <= 2 && z <= 2) ||
+                        (x >= width - 3 && z <= 2) ||
+                        (x <= 2 && z >= height - 3) ||
+                        (x >= width - 3 && z >= height - 3);
                     
                     if (!isSpawnCorner)
                     {

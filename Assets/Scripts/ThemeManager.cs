@@ -38,6 +38,11 @@ public class ThemeManager : MonoBehaviour
 
     [Header("Themes")]
     [SerializeField] private SeasonTheme[] themes = new SeasonTheme[4];
+
+    [Header("Players")]
+    [SerializeField] private GameObject[] playerPrefabs = new GameObject[4];
+    [SerializeField] private Vector3 playerSpawnOffset = new Vector3(0f, 0.5f, 0f);
+    [SerializeField] private bool spawnPlayersOnThemeApply = true;
     
     private int currentThemeIndex = 0;
 
@@ -106,6 +111,12 @@ public class ThemeManager : MonoBehaviour
 
         // Generate level mới
         GenerateLevel(theme);
+
+        if (spawnPlayersOnThemeApply && !OnlineSessionState.IsOnlineSession)
+        {
+            SpawnPlayers(theme);
+        }
+
         Debug.Log($"Applied theme: {theme.seasonName}");
 
         // Debug: log layout info to verify LevelData is used
@@ -195,6 +206,40 @@ public class ThemeManager : MonoBehaviour
 
     Debug.Log($"Generated level: {theme.seasonName} - {width}x{height}");
 }
+
+    private void SpawnPlayers(SeasonTheme theme)
+    {
+        if (playerPrefabs == null || playerPrefabs.Length == 0)
+        {
+            Debug.LogWarning("No player prefabs assigned for spawning.");
+            return;
+        }
+
+        Vector3[] spawnPoints = GetCornerSpawnPoints();
+
+        for (int i = 0; i < spawnPoints.Length; i++)
+        {
+            GameObject prefab = playerPrefabs[Mathf.Min(i, playerPrefabs.Length - 1)];
+            if (prefab == null)
+            {
+                continue;
+            }
+
+            GameObject player = Instantiate(prefab, spawnPoints[i] + playerSpawnOffset, Quaternion.identity, transform);
+            player.name = $"Player{i + 1}";
+        }
+    }
+
+    private Vector3[] GetCornerSpawnPoints()
+    {
+        return new Vector3[]
+        {
+            GetWorldPosition(1, 1),
+            GetWorldPosition(width - 2, 1),
+            GetWorldPosition(1, height - 2),
+            GetWorldPosition(width - 2, height - 2)
+        };
+    }
 
     private void SpawnPrefab(PrefabOption[] prefabOptions, Vector3 basePos, Vector3 offset)
     {
