@@ -152,6 +152,18 @@ public class AuthService {
         return new UserProfileResponse(true, "Profile loaded", user.getUsername(), user.getEmail(), user.getRole());
     }
 
+    public ApiResponse logout(String authorizationHeader) {
+        String token = extractToken(authorizationHeader);
+        String username = jwtService.extractUsername(token);
+
+        if (username == null || !jwtService.isTokenValid(token)) {
+            throw new IllegalArgumentException("Invalid token");
+        }
+
+        log.info("User '{}' successfully logged out.", username);
+        return new ApiResponse(true, "Logout successful");
+    }
+
     private Optional<User> findByIdentifier(String identifier) {
         return userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase(identifier, normalizeEmail(identifier));
     }

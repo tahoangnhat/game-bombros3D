@@ -39,6 +39,11 @@ public class AuthController {
         return authService.resetPassword(request);
     }
 
+    @PostMapping("/logout")
+    public ApiResponse logout(@RequestHeader("Authorization") String authorization) {
+        return authService.logout(authorization);
+    }
+
     @GetMapping("/me")
     public UserProfileResponse me(@RequestHeader("Authorization") String authorization) {
         return authService.getProfile(authorization);
