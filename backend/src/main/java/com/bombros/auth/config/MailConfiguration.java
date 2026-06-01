@@ -23,7 +23,8 @@ public class MailConfiguration {
 
     @PostConstruct
     public void sanitizeMailPassword() {
-        if (rawPassword == null) rawPassword = "";
+        if (rawPassword == null)
+            rawPassword = "";
         String sanitized = rawPassword.replaceAll("\\s+", "");
         if (!sanitized.equals(rawPassword)) {
             log.info("Whitespace removed from configured mail password");

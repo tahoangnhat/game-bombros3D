@@ -48,4 +48,10 @@ public class AuthController {
     public UserProfileResponse me(@RequestHeader("Authorization") String authorization) {
         return authService.getProfile(authorization);
     }
+
+    @GetMapping("/search")
+    public UserSearchResponse search(@RequestParam(name = "id", required = false) Long id,
+            @RequestParam(name = "username", required = false) String username) {
+        return authService.searchUser(id, username);
+    }
 }

@@ -26,11 +26,11 @@ public class JwtService {
         Instant expiration = now.plus(appProperties.getJwt().getExpirationMinutes(), ChronoUnit.MINUTES);
 
         return Jwts.builder()
-            .setSubject(username)
-            .setIssuedAt(Date.from(now))
-            .setExpiration(Date.from(expiration))
-            .signWith(getSigningKey(), SignatureAlgorithm.HS256)
-            .compact();
+                .setSubject(username)
+                .setIssuedAt(Date.from(now))
+                .setExpiration(Date.from(expiration))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
     }
 
     public String extractUsername(String token) {
@@ -39,19 +39,21 @@ public class JwtService {
 
     public boolean isTokenValid(String token) {
         Claims claims = parseClaims(token);
-        return claims.getSubject() != null && claims.getExpiration() != null && claims.getExpiration().after(new Date());
+        return claims.getSubject() != null && claims.getExpiration() != null
+                && claims.getExpiration().after(new Date());
     }
 
     private Claims parseClaims(String token) {
         return Jwts.parserBuilder()
-            .setSigningKey(getSigningKey())
-            .build()
-            .parseClaimsJws(token)
-            .getBody();
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
     }
 
     private Key getSigningKey() {
-        byte[] keyBytes = Base64.getEncoder().encode(appProperties.getJwt().getSecret().getBytes(StandardCharsets.UTF_8));
+        byte[] keyBytes = Base64.getEncoder()
+                .encode(appProperties.getJwt().getSecret().getBytes(StandardCharsets.UTF_8));
         return Keys.hmacShaKeyFor(keyBytes);
     }
 }

@@ -26,10 +26,10 @@ public class AuthService {
     private final MailService mailService;
 
     public AuthService(UserRepository userRepository,
-                       PasswordEncoder passwordEncoder,
-                       AuthenticationManager authenticationManager,
-                       JwtService jwtService,
-                       MailService mailService) {
+            PasswordEncoder passwordEncoder,
+            AuthenticationManager authenticationManager,
+            JwtService jwtService,
+            MailService mailService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
@@ -61,17 +61,17 @@ public class AuthService {
         mailService.sendRegistrationSuccessEmail(user.getEmail(), user.getUsername());
 
         String token = jwtService.generateToken(user.getUsername());
-        return new AuthResponse(true, "Registered successfully", token, user.getUsername(), user.getEmail(), user.getRole());
+        return new AuthResponse(true, "Registered successfully", token, user.getUsername(), user.getEmail(),
+                user.getRole());
     }
 
     public AuthResponse login(LoginRequest request) {
         String identifier = request.getIdentifier().trim();
         User user = findByIdentifier(identifier)
-            .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
         authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword())
-        );
+                new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword()));
 
         String token = jwtService.generateToken(user.getUsername());
         return new AuthResponse(true, "Login successful", token, user.getUsername(), user.getEmail(), user.getRole());
@@ -101,8 +101,10 @@ public class AuthService {
         boolean emailSent = mailService.sendPasswordResetOtpEmail(user.getEmail(), user.getUsername(), otp);
         if (!emailSent) {
             // Dev fallback: keep OTP flow usable even when SMTP is misconfigured.
-            log.error("Failed to send OTP email to '{}' for user id={}. Continuing with dev fallback OTP flow.", user.getEmail(), user.getId());
-            log.warn("DEV OTP for email='{}' user='{}' is {} (valid 5 minutes)", user.getEmail(), user.getUsername(), otp);
+            log.error("Failed to send OTP email to '{}' for user id={}. Continuing with dev fallback OTP flow.",
+                    user.getEmail(), user.getId());
+            log.warn("DEV OTP for email='{}' user='{}' is {} (valid 5 minutes)", user.getEmail(), user.getUsername(),
+                    otp);
             return new ApiResponse(true, "OTP generated (dev fallback). Check backend logs for the OTP.", 60);
         }
 
@@ -115,7 +117,7 @@ public class AuthService {
         log.info("Verify OTP requested for email='{}'", email);
 
         User user = userRepository.findByEmailIgnoreCase(email)
-            .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
         validateOtp(user, request.getOtp());
         log.info("OTP verified for user id={}", user.getId());
@@ -129,7 +131,7 @@ public class AuthService {
         log.info("Reset password requested for email='{}'", email);
 
         User user = userRepository.findByEmailIgnoreCase(email)
-            .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
         validateOtp(user, request.getOtp());
 
@@ -147,9 +149,28 @@ public class AuthService {
         String token = extractToken(authorizationHeader);
         String username = jwtService.extractUsername(token);
         User user = userRepository.findByUsernameIgnoreCase(username)
-            .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
         return new UserProfileResponse(true, "Profile loaded", user.getUsername(), user.getEmail(), user.getRole());
+    }
+
+    public UserSearchResponse searchUser(Long id, String username) {
+        if (id == null && (username == null || username.trim().isEmpty())) {
+            throw new IllegalArgumentException("Either id or username must be provided");
+        }
+
+        Optional<User> userOpt;
+        if (id != null && username != null && !username.trim().isEmpty()) {
+            userOpt = userRepository.findByIdAndUsernameIgnoreCase(id, username.trim());
+        } else if (id != null) {
+            userOpt = userRepository.findById(id);
+        } else {
+            userOpt = userRepository.findByUsernameIgnoreCase(username.trim());
+        }
+
+        User user = userOpt.orElseThrow(() -> new IllegalArgumentException("User not found"));
+        return new UserSearchResponse(true, "User found", user.getId(), user.getUsername(), user.getEmail(),
+                user.getRole());
     }
 
     public ApiResponse logout(String authorizationHeader) {
@@ -194,7 +215,8 @@ public class AuthService {
         LocalDateTime nextAllowed = user.getPasswordResetOtpRequestedAt().plusSeconds(60);
         if (LocalDateTime.now().isBefore(nextAllowed)) {
             long remaining = java.time.Duration.between(LocalDateTime.now(), nextAllowed).getSeconds();
-            throw new IllegalArgumentException("Please wait " + Math.max(1, remaining) + " seconds before requesting another OTP");
+            throw new IllegalArgumentException(
+                    "Please wait " + Math.max(1, remaining) + " seconds before requesting another OTP");
         }
     }
 
