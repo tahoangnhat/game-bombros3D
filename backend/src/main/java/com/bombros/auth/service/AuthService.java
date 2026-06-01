@@ -10,8 +10,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -171,6 +173,14 @@ public class AuthService {
         User user = userOpt.orElseThrow(() -> new IllegalArgumentException("User not found"));
         return new UserSearchResponse(true, "User found", user.getId(), user.getUsername(), user.getEmail(),
                 user.getRole());
+    }
+
+    public LeaderboardResponse getLeaderboard() {
+        List<User> topUsers = userRepository.findTop10ByOrderByWinsDesc();
+        List<LeaderboardUserDto> leaderboard = topUsers.stream()
+                .map(user -> new LeaderboardUserDto(user.getId(), user.getUsername(), user.getWins()))
+                .collect(Collectors.toList());
+        return new LeaderboardResponse(true, "Leaderboard loaded", leaderboard);
     }
 
     public ApiResponse logout(String authorizationHeader) {

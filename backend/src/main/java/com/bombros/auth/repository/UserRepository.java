@@ -3,6 +3,7 @@ package com.bombros.auth.repository;
 import com.bombros.auth.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -13,6 +14,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsernameIgnoreCaseOrEmailIgnoreCase(String username, String email);
 
     Optional<User> findByIdAndUsernameIgnoreCase(Long id, String username);
+
+    List<User> findTop10ByOrderByWinsDesc();
 
     boolean existsByUsernameIgnoreCase(String username);
 

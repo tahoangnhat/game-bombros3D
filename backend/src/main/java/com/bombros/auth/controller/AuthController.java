@@ -54,4 +54,9 @@ public class AuthController {
             @RequestParam(name = "username", required = false) String username) {
         return authService.searchUser(id, username);
     }
+
+    @GetMapping("/leaderboard")
+    public LeaderboardResponse getLeaderboard() {
+        return authService.getLeaderboard();
+    }
 }

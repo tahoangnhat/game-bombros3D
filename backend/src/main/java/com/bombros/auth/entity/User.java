@@ -39,6 +39,9 @@ public class User {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
+    @Column(nullable = false)
+    private int wins = 0;
+
     @PrePersist
     public void onCreate() {
         LocalDateTime now = LocalDateTime.now();
@@ -57,6 +60,14 @@ public class User {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public int getWins() {
+        return wins;
+    }
+
+    public void setWins(int wins) {
+        this.wins = wins;
     }
 
     public String getUsername() {
