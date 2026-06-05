@@ -40,7 +40,7 @@ public class MainMenuLogoutButton : MonoBehaviour
 
         if (logoutButton == null && autoFindLogoutButtonByName)
         {
-            Button[] buttons = FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Button[] buttons = FindObjectsByType<Button>(FindObjectsInactive.Include);
             string keyword = string.IsNullOrWhiteSpace(logoutButtonNameKeyword) ? "logout" : logoutButtonNameKeyword.Trim().ToLowerInvariant();
 
             for (int i = 0; i < buttons.Length; i++)

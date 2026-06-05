@@ -1,22 +1,21 @@
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using Unity.Netcode;
-using Unity.Netcode.Transports.UTP;
+using Fusion;
+using Fusion.Sockets;
 using Unity.Services.Authentication;
 using Unity.Services.Core;
 using Unity.Services.Lobbies;
 using Unity.Services.Lobbies.Models;
-using Unity.Services.Relay;
-using Unity.Services.Relay.Models;
-using Unity.Networking.Transport.Relay;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
 
-public class OnlineLobbyManager : MonoBehaviour
+public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 {
-    private const string RelayJoinCodeKey = "relayJoinCode";
     private const string LobbyRankMmrKey = "rankMmr";
     private const string LobbyRankBucketKey = "rankBucket";
     private const string ReadyKey = "ready";
@@ -32,7 +31,7 @@ public class OnlineLobbyManager : MonoBehaviour
     public string statusMessage = "Initializing...";
 
     [Header("Scenes")]
-    public string gameSceneName = "SampleScene";
+    public string gameSceneName = "GameScene";
 
     [Header("Network Prefabs")]
     public NetworkObject playerPrefab;
@@ -54,18 +53,17 @@ public class OnlineLobbyManager : MonoBehaviour
     public float otpResendCooldownSeconds = 60f;
 
     private Lobby currentLobby;
-    private UnityTransport transport;
-    private NetworkManager networkManager;
+    private NetworkRunner runner;
+    private NetworkSceneManagerDefault sceneManager;
     private bool servicesReady;
     private bool isHost;
     private float heartbeatTimer;
     private float pollTimer;
-    private string relayJoinCode;
-    private bool playerPrefabRegistered;
-    private bool bombPrefabRegistered;
-    private bool explosionPrefabRegistered;
     private bool localReady;
     private bool isLoadingGame;
+    private bool gameSceneLoaded;
+    private bool isLobbyConnectionInProgress;
+    private float lobbyRefreshGraceUntil = -1f;
     private float lastOtpRequestTime = -999f;
     private string pendingOtpEmail = string.Empty;
     private string pendingOtpCode = string.Empty;
@@ -87,12 +85,15 @@ public class OnlineLobbyManager : MonoBehaviour
 
     private const float HeartbeatInterval = 15f;
     private const float PollInterval = 2f;
+    private const float LobbyRefreshGraceSeconds = 3f;
+    private const int JoinLobbyRetryAttempts = 3;
+    private const int JoinLobbyRetryDelayMs = 1000;
 
     public bool ServicesReady => servicesReady;
     public bool IsHostLobby => isHost;
-    public bool IsSignedIn => TryGetAuthService(out IAuthenticationService auth) && auth.IsSignedIn;
+    public bool IsSignedIn => (TryGetAuthService(out IAuthenticationService auth) && auth.IsSignedIn) || SpringAuthSession.IsSignedIn;
     public Lobby CurrentLobby => currentLobby;
-    public string RelayJoinCode => relayJoinCode;
+    public string CurrentLobbyCode => currentLobby != null ? currentLobby.LobbyCode : string.Empty;
     public int CurrentMmr => GetLocalMmr();
     public string CurrentRankTier => GetRankTier(CurrentMmr);
     public float OtpResendRemainingSeconds => Mathf.Max(0f, otpResendCooldownSeconds - (Time.unscaledTime - lastOtpRequestTime));
@@ -161,7 +162,7 @@ public class OnlineLobbyManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        EnsureNetworkStack();
+        AutoAssignNetworkPrefabs();
         OnlineSessionState.IsOnlineSession = false;
 
         if (autoInitialize)
@@ -188,7 +189,7 @@ public class OnlineLobbyManager : MonoBehaviour
         }
 
         pollTimer += Time.deltaTime;
-        if (pollTimer >= PollInterval)
+        if (pollTimer >= PollInterval && Time.unscaledTime >= lobbyRefreshGraceUntil)
         {
             pollTimer = 0f;
             _ = RefreshLobbyAsync();
@@ -197,7 +198,7 @@ public class OnlineLobbyManager : MonoBehaviour
 
     public void SetJoinCodeInput(string value)
     {
-        joinLobbyCode = value != null ? value.Trim() : string.Empty;
+        joinLobbyCode = NormalizeLobbyCodeInput(value);
     }
 
     public bool IsLocalPlayerReady()
@@ -230,6 +231,30 @@ public class OnlineLobbyManager : MonoBehaviour
         }
 
         return builder.ToString();
+    }
+
+    public string GetLobbyPlayerSlotText(int slotIndex)
+    {
+        int displaySlot = slotIndex + 1;
+
+        if (currentLobby == null || currentLobby.Players == null || slotIndex < 0 || slotIndex >= maxPlayers)
+        {
+            return $"Slot {displaySlot}: Empty";
+        }
+
+        if (slotIndex >= currentLobby.Players.Count)
+        {
+            return $"Slot {displaySlot}: Empty";
+        }
+
+        Player player = currentLobby.Players[slotIndex];
+        if (player == null)
+        {
+            return $"Slot {displaySlot}: Empty";
+        }
+
+        string name = GetPlayerDisplayName(player);
+        return $"Slot {displaySlot}: {name}";
     }
 
     public void CreateLobbyAndHost()
@@ -312,6 +337,11 @@ public class OnlineLobbyManager : MonoBehaviour
     public void LeaveSession()
     {
         _ = LeaveSessionAsync();
+    }
+
+    public void LeaveSessionAndGoToMainMenu(string mainMenuSceneName)
+    {
+        _ = LeaveSessionAndGoToMainMenuAsync(mainMenuSceneName);
     }
 
     private async Task InitializeServicesAsync()
@@ -602,37 +632,20 @@ public class OnlineLobbyManager : MonoBehaviour
     {
         await InitializeServicesAsync();
 
-        if (!servicesReady || !IsSignedIn)
+        if (!servicesReady || !await EnsureUnityAuthenticationAsync())
         {
             statusMessage = "Please login first";
             return;
         }
 
+        isLobbyConnectionInProgress = true;
         try
         {
-            statusMessage = "Creating relay allocation...";
-            Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxPlayers - 1);
-            relayJoinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
-
-            EnsureNetworkStack();
-            transport.SetRelayServerData(new RelayServerData(allocation, "dtls"));
-
-            if (!networkManager.IsListening)
-            {
-                SetupNetworkPrefabs();
-                if (!networkManager.StartHost())
-                {
-                    statusMessage = "Failed to start host";
-                    return;
-                }
-            }
-
             statusMessage = "Creating lobby...";
             CreateLobbyOptions options = new CreateLobbyOptions
             {
                 Data = new Dictionary<string, DataObject>
                 {
-                    { RelayJoinCodeKey, new DataObject(DataObject.VisibilityOptions.Member, relayJoinCode) },
                     { LobbyRankMmrKey, new DataObject(DataObject.VisibilityOptions.Public, CurrentMmr.ToString(), DataObject.IndexOptions.N1) },
                     { LobbyRankBucketKey, new DataObject(DataObject.VisibilityOptions.Public, BuildRankBucket(CurrentMmr), DataObject.IndexOptions.S1) }
                 }
@@ -640,14 +653,22 @@ public class OnlineLobbyManager : MonoBehaviour
 
             currentLobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers, options);
             isHost = true;
-            OnlineSessionState.IsOnlineSession = true;
-            await SetLocalReadyAsync(false);
+            await SendHeartbeatAsync();
+            await SetLocalReadyAsync(true);
+
+            statusMessage = "Starting Fusion host session...";
+            await StartFusionSessionAsync(GameMode.Host, currentLobby.LobbyCode);
             statusMessage = $"Lobby created. Code: {currentLobby.LobbyCode}";
+            MarkLobbyRefreshGracePeriod();
         }
         catch (System.Exception ex)
         {
             statusMessage = $"Host failed: {ex.Message}";
             Debug.LogException(ex);
+        }
+        finally
+        {
+            isLobbyConnectionInProgress = false;
         }
     }
 
@@ -655,7 +676,7 @@ public class OnlineLobbyManager : MonoBehaviour
     {
         await InitializeServicesAsync();
 
-        if (!servicesReady || !IsSignedIn)
+        if (!servicesReady || !await EnsureUnityAuthenticationAsync())
         {
             statusMessage = "Please login first";
             return;
@@ -667,52 +688,339 @@ public class OnlineLobbyManager : MonoBehaviour
             return;
         }
 
+        isLobbyConnectionInProgress = true;
         try
         {
             statusMessage = "Joining lobby...";
-            currentLobby = await LobbyService.Instance.JoinLobbyByCodeAsync(lobbyCode.Trim());
-
-            if (!currentLobby.Data.TryGetValue(RelayJoinCodeKey, out DataObject relayJoinCodeData))
+            string trimmedLobbyCode = NormalizeLobbyCodeInput(lobbyCode);
+            if (string.IsNullOrWhiteSpace(trimmedLobbyCode))
             {
-                statusMessage = "Lobby has no relay code";
+                statusMessage = "Enter a valid lobby code";
                 return;
             }
 
-            relayJoinCode = relayJoinCodeData.Value;
+            await PruneStaleJoinedLobbiesAsync();
 
-            JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(relayJoinCode);
-            EnsureNetworkStack();
-            transport.SetRelayServerData(new RelayServerData(joinAllocation, "dtls"));
-
-            SetupNetworkPrefabs();
-            if (!networkManager.StartClient())
+            currentLobby = await TryGetJoinedLobbyByCodeAsync(trimmedLobbyCode);
+            if (currentLobby == null)
             {
-                statusMessage = "Failed to start client";
+                await LeaveAnyJoinedLobbiesAsync();
+                currentLobby = await JoinLobbyByCodeWithRecoveryAsync(trimmedLobbyCode);
+            }
+
+            if (currentLobby == null)
+            {
                 return;
             }
+
+            statusMessage = "Starting Fusion client session...";
+            await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode);
 
             isHost = false;
-            OnlineSessionState.IsOnlineSession = true;
             await SetLocalReadyAsync(false);
+
+            if (currentLobby == null)
+            {
+                statusMessage = "Join failed: lobby session was lost during connect";
+                return;
+            }
+
             statusMessage = $"Joined lobby {currentLobby.LobbyCode}";
+            MarkLobbyRefreshGracePeriod();
+        }
+        catch (LobbyServiceException ex) when (IsLobbyNotFoundError(ex))
+        {
+            statusMessage = BuildLobbyNotFoundMessage(NormalizeLobbyCodeInput(lobbyCode));
         }
         catch (System.Exception ex)
         {
             statusMessage = $"Join failed: {ex.Message}";
-            Debug.LogException(ex);
+            Debug.LogWarning($"Join lobby failed: {ex.Message}");
         }
+        finally
+        {
+            isLobbyConnectionInProgress = false;
+        }
+    }
+
+    private async Task<Lobby> JoinLobbyByCodeWithRecoveryAsync(string lobbyCode)
+    {
+        for (int attempt = 0; attempt < JoinLobbyRetryAttempts; attempt++)
+        {
+            try
+            {
+                return await LobbyService.Instance.JoinLobbyByCodeAsync(lobbyCode);
+            }
+            catch (LobbyServiceException ex) when (ex.Reason == LobbyExceptionReason.LobbyConflict)
+            {
+                await LeaveAnyJoinedLobbiesAsync();
+            }
+            catch (LobbyServiceException ex) when (IsLobbyNotFoundError(ex))
+            {
+                if (attempt < JoinLobbyRetryAttempts - 1)
+                {
+                    statusMessage = $"Lobby not ready, retrying ({attempt + 2}/{JoinLobbyRetryAttempts})...";
+                    await Task.Delay(JoinLobbyRetryDelayMs);
+                    continue;
+                }
+
+                statusMessage = BuildLobbyNotFoundMessage(lobbyCode);
+                return null;
+            }
+            catch (LobbyServiceException ex) when (IsTransientLobbyServiceError(ex))
+            {
+                if (attempt < JoinLobbyRetryAttempts - 1 && await EnsureUnityAuthenticationAsync())
+                {
+                    statusMessage = $"Lobby service busy, retrying ({attempt + 2}/{JoinLobbyRetryAttempts})...";
+                    await Task.Delay(JoinLobbyRetryDelayMs);
+                    continue;
+                }
+
+                statusMessage = "Lobby service unavailable. Please try again.";
+                Debug.LogWarning($"Join lobby transient error ({ex.Reason}): {ex.Message}");
+                return null;
+            }
+        }
+
+        statusMessage = BuildLobbyNotFoundMessage(lobbyCode);
+        return null;
+    }
+
+    private async Task<Lobby> TryGetJoinedLobbyByCodeAsync(string lobbyCode)
+    {
+        if (string.IsNullOrWhiteSpace(lobbyCode))
+        {
+            return null;
+        }
+
+        List<string> joinedLobbyIds = await GetJoinedLobbyIdsSafeAsync();
+        if (joinedLobbyIds.Count == 0)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < joinedLobbyIds.Count; i++)
+        {
+            string joinedLobbyId = joinedLobbyIds[i];
+            if (string.IsNullOrWhiteSpace(joinedLobbyId))
+            {
+                continue;
+            }
+
+            try
+            {
+                Lobby joinedLobby = await LobbyService.Instance.GetLobbyAsync(joinedLobbyId);
+                if (joinedLobby != null && string.Equals(joinedLobby.LobbyCode, lobbyCode, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return joinedLobby;
+                }
+            }
+            catch (LobbyServiceException ex) when (IsStaleLobbyLookupError(ex))
+            {
+                await TryRemovePlayerFromLobbyAsync(joinedLobbyId);
+            }
+            catch (System.Exception ex) when (IsStaleLobbyLookupError(ex))
+            {
+                await TryRemovePlayerFromLobbyAsync(joinedLobbyId);
+            }
+        }
+
+        return null;
+    }
+
+    private async Task PruneStaleJoinedLobbiesAsync()
+    {
+        try
+        {
+            List<string> joinedLobbyIds = await GetJoinedLobbyIdsSafeAsync();
+            if (joinedLobbyIds.Count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < joinedLobbyIds.Count; i++)
+            {
+                string joinedLobbyId = joinedLobbyIds[i];
+                if (string.IsNullOrWhiteSpace(joinedLobbyId))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await LobbyService.Instance.GetLobbyAsync(joinedLobbyId);
+                }
+                catch (System.Exception ex) when (IsStaleLobbyLookupError(ex))
+                {
+                    await TryRemovePlayerFromLobbyAsync(joinedLobbyId);
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"Prune stale lobbies skipped: {ex.Message}");
+        }
+    }
+
+    private async Task<List<string>> GetJoinedLobbyIdsSafeAsync()
+    {
+        if (!await EnsureUnityAuthenticationAsync())
+        {
+            return new List<string>();
+        }
+
+        try
+        {
+            List<string> joinedLobbyIds = await LobbyService.Instance.GetJoinedLobbiesAsync();
+            return joinedLobbyIds ?? new List<string>();
+        }
+        catch (LobbyServiceException ex)
+        {
+            Debug.LogWarning($"GetJoinedLobbies skipped ({ex.Reason}): {ex.Message}");
+            return new List<string>();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"GetJoinedLobbies skipped: {ex.Message}");
+            return new List<string>();
+        }
+    }
+
+    private async Task TryRemovePlayerFromLobbyAsync(string lobbyId)
+    {
+        string playerId = GetPlayerIdSafe();
+        if (string.IsNullOrEmpty(playerId) || string.IsNullOrWhiteSpace(lobbyId))
+        {
+            return;
+        }
+
+        try
+        {
+            await LobbyService.Instance.RemovePlayerAsync(lobbyId, playerId);
+        }
+        catch (LobbyServiceException ex) when (IsStaleLobbyLookupError(ex))
+        {
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"Could not remove stale lobby membership ({lobbyId}): {ex.Message}");
+        }
+    }
+
+    private async Task LeaveAnyJoinedLobbiesAsync()
+    {
+        string playerId = GetPlayerIdSafe();
+        if (string.IsNullOrEmpty(playerId))
+        {
+            return;
+        }
+
+        List<string> joinedLobbyIds = await GetJoinedLobbyIdsSafeAsync();
+        for (int i = 0; i < joinedLobbyIds.Count; i++)
+        {
+            string joinedLobbyId = joinedLobbyIds[i];
+            if (string.IsNullOrWhiteSpace(joinedLobbyId))
+            {
+                continue;
+            }
+
+            await TryRemovePlayerFromLobbyAsync(joinedLobbyId);
+        }
+
+        if (currentLobby != null)
+        {
+            currentLobby = null;
+        }
+    }
+
+    private static bool IsTransientLobbyServiceError(LobbyServiceException ex)
+    {
+        if (ex == null)
+        {
+            return false;
+        }
+
+        return ex.Reason == LobbyExceptionReason.Unknown
+            || ex.Reason == LobbyExceptionReason.NetworkError
+            || ex.Reason == LobbyExceptionReason.ServiceUnavailable;
+    }
+
+    private static bool IsLobbyNotFoundError(LobbyServiceException ex)
+    {
+        return ex != null && ex.Reason == LobbyExceptionReason.EntityNotFound;
+    }
+
+    private static bool IsStaleLobbyLookupError(System.Exception ex)
+    {
+        if (ex is LobbyServiceException lobbyEx)
+        {
+            return lobbyEx.Reason == LobbyExceptionReason.EntityNotFound
+                || lobbyEx.Reason == LobbyExceptionReason.Unknown;
+        }
+
+        return ex != null && ex.Message != null
+            && (ex.Message.Contains("404") || ex.Message.Contains("not found", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildLobbyNotFoundMessage(string trimmedLobbyCode)
+    {
+        return string.IsNullOrWhiteSpace(trimmedLobbyCode)
+            ? "Lobby not found. Ask the host to create a new room."
+            : $"Lobby '{trimmedLobbyCode}' not found. Check the code or ask the host to create a new room.";
+    }
+
+    private static string NormalizeLobbyCodeInput(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        string trimmedValue = value.Trim();
+        string lastToken = string.Empty;
+        int tokenStart = -1;
+
+        for (int i = 0; i < trimmedValue.Length; i++)
+        {
+            char current = trimmedValue[i];
+            bool isCodeChar = char.IsLetterOrDigit(current);
+
+            if (isCodeChar)
+            {
+                if (tokenStart < 0)
+                {
+                    tokenStart = i;
+                }
+
+                continue;
+            }
+
+            if (tokenStart >= 0)
+            {
+                lastToken = trimmedValue.Substring(tokenStart, i - tokenStart);
+                tokenStart = -1;
+            }
+        }
+
+        if (tokenStart >= 0)
+        {
+            lastToken = trimmedValue.Substring(tokenStart);
+        }
+
+        return !string.IsNullOrWhiteSpace(lastToken) ? lastToken : trimmedValue;
     }
 
     private async Task QuickJoinAndConnectAsync()
     {
         await InitializeServicesAsync();
 
-        if (!servicesReady || !IsSignedIn)
+        if (!servicesReady || !await EnsureUnityAuthenticationAsync())
         {
             statusMessage = "Please login first";
             return;
         }
 
+        isLobbyConnectionInProgress = true;
         try
         {
             statusMessage = "Quick joining by rank...";
@@ -724,33 +1032,22 @@ public class OnlineLobbyManager : MonoBehaviour
                 currentLobby = await LobbyService.Instance.QuickJoinLobbyAsync();
             }
 
-            if (!currentLobby.Data.TryGetValue(RelayJoinCodeKey, out DataObject relayJoinCodeData))
-            {
-                statusMessage = "Lobby has no relay code";
-                return;
-            }
-
-            relayJoinCode = relayJoinCodeData.Value;
-            JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(relayJoinCode);
-            EnsureNetworkStack();
-            transport.SetRelayServerData(new RelayServerData(joinAllocation, "dtls"));
-
-            SetupNetworkPrefabs();
-            if (!networkManager.StartClient())
-            {
-                statusMessage = "Failed to start client";
-                return;
-            }
+            statusMessage = "Starting Fusion client session...";
+            await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode);
 
             isHost = false;
-            OnlineSessionState.IsOnlineSession = true;
             await SetLocalReadyAsync(false);
             statusMessage = $"Quick joined lobby {currentLobby.LobbyCode}";
+            MarkLobbyRefreshGracePeriod();
         }
         catch (System.Exception ex)
         {
             statusMessage = $"Quick join failed: {ex.Message}";
             Debug.LogException(ex);
+        }
+        finally
+        {
+            isLobbyConnectionInProgress = false;
         }
     }
 
@@ -782,11 +1079,12 @@ public class OnlineLobbyManager : MonoBehaviour
 
         OnlineSessionState.IsOnlineSession = true;
         isLoadingGame = true;
+        gameSceneLoaded = false;
         statusMessage = "Starting game...";
 
-        if (networkManager.SceneManager != null)
+        if (runner != null && runner.IsRunning)
         {
-            networkManager.SceneManager.LoadScene(gameSceneName, LoadSceneMode.Single);
+            _ = runner.LoadScene(gameSceneName, LoadSceneMode.Single, LocalPhysicsMode.Physics3D, true);
         }
 
         await Task.CompletedTask;
@@ -817,22 +1115,32 @@ public class OnlineLobbyManager : MonoBehaviour
             Debug.LogException(ex);
         }
 
-        if (NetworkManager.Singleton != null)
+        if (runner != null)
         {
-            NetworkManager.Singleton.Shutdown();
+            _ = runner.Shutdown();
         }
 
-        currentLobby = null;
-        isHost = false;
-        localReady = false;
-        isLoadingGame = false;
-        OnlineSessionState.IsOnlineSession = false;
-        statusMessage = "Left session";
+        ClearLobbySessionState("Left session");
+    }
+
+    private async Task LeaveSessionAndGoToMainMenuAsync(string mainMenuSceneName)
+    {
+        await LeaveSessionAsync();
+
+        if (!string.IsNullOrWhiteSpace(mainMenuSceneName))
+        {
+            SceneManager.LoadScene(mainMenuSceneName);
+        }
     }
 
     private async Task SendHeartbeatAsync()
     {
-        if (currentLobby == null || !isHost)
+        if (currentLobby == null || !isHost || string.IsNullOrWhiteSpace(currentLobby.Id))
+        {
+            return;
+        }
+
+        if (!await EnsureUnityAuthenticationAsync())
         {
             return;
         }
@@ -841,15 +1149,30 @@ public class OnlineLobbyManager : MonoBehaviour
         {
             await LobbyService.Instance.SendHeartbeatPingAsync(currentLobby.Id);
         }
+        catch (LobbyServiceException ex) when (IsFatalLobbyRefreshError(ex))
+        {
+            ClearLobbySessionState("Host lobby expired. Please create a new room.");
+            Debug.LogWarning($"Host lobby heartbeat failed ({ex.Reason}): {ex.Message}");
+        }
         catch (System.Exception ex)
         {
-            Debug.LogException(ex);
+            Debug.LogWarning($"Host lobby heartbeat skipped: {ex.Message}");
         }
     }
 
     private async Task RefreshLobbyAsync()
     {
-        if (currentLobby == null)
+        if (currentLobby == null || isLobbyConnectionInProgress)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentLobby.Id))
+        {
+            return;
+        }
+
+        if (!await EnsureUnityAuthenticationAsync())
         {
             return;
         }
@@ -859,10 +1182,44 @@ public class OnlineLobbyManager : MonoBehaviour
             currentLobby = await LobbyService.Instance.GetLobbyAsync(currentLobby.Id);
             localReady = IsLocalPlayerReady(currentLobby);
         }
+        catch (LobbyServiceException ex)
+        {
+            if (IsFatalLobbyRefreshError(ex))
+            {
+                ClearLobbySessionState(ex.Reason == LobbyExceptionReason.EntityNotFound
+                    ? "Lobby no longer exists"
+                    : "Lobby refresh failed");
+                Debug.LogWarning($"Lobby refresh ended session ({ex.Reason}): {ex.Message}");
+                return;
+            }
+
+            Debug.LogWarning($"Lobby refresh skipped ({ex.Reason}): {ex.Message}");
+        }
         catch (System.Exception ex)
         {
-            Debug.LogException(ex);
+            Debug.LogWarning($"Lobby refresh skipped: {ex.Message}");
         }
+    }
+
+    private void MarkLobbyRefreshGracePeriod()
+    {
+        lobbyRefreshGraceUntil = Time.unscaledTime + LobbyRefreshGraceSeconds;
+    }
+
+    private void ClearLobbySessionState(string message)
+    {
+        currentLobby = null;
+        isHost = false;
+        localReady = false;
+        isLoadingGame = false;
+        lobbyRefreshGraceUntil = -1f;
+        OnlineSessionState.IsOnlineSession = false;
+        statusMessage = message;
+    }
+
+    private static bool IsFatalLobbyRefreshError(LobbyServiceException ex)
+    {
+        return ex != null && ex.Reason == LobbyExceptionReason.EntityNotFound;
     }
 
     private async Task<Lobby> FindRankedLobbyAsync()
@@ -1014,6 +1371,16 @@ public class OnlineLobbyManager : MonoBehaviour
 
     private string BuildLocalDisplayName()
     {
+        if (!string.IsNullOrWhiteSpace(SpringAuthSession.Username))
+        {
+            return SpringAuthSession.Username.Trim();
+        }
+
+        if (SpringAuthSession.Profile != null && !string.IsNullOrWhiteSpace(SpringAuthSession.Profile.username))
+        {
+            return SpringAuthSession.Profile.username.Trim();
+        }
+
         string playerId = GetPlayerIdSafe();
         if (string.IsNullOrEmpty(playerId))
         {
@@ -1267,50 +1634,154 @@ public class OnlineLobbyManager : MonoBehaviour
         public string newPassword;
     }
 
-    private void EnsureNetworkStack()
+    private async Task StartFusionSessionAsync(GameMode gameMode, string sessionName)
     {
         AutoAssignNetworkPrefabs();
 
-        if (networkManager == null)
+        if (runner == null)
         {
-            networkManager = FindAnyObjectByType<NetworkManager>();
-        }
-
-        if (networkManager == null)
-        {
-            GameObject networkRoot = new GameObject("NetworkManager");
-            networkManager = networkRoot.AddComponent<NetworkManager>();
-            transport = networkRoot.AddComponent<UnityTransport>();
+            GameObject networkRoot = new GameObject("FusionRunner");
+            runner = networkRoot.AddComponent<NetworkRunner>();
+            sceneManager = networkRoot.AddComponent<NetworkSceneManagerDefault>();
             DontDestroyOnLoad(networkRoot);
         }
-        else
+
+        if (runner == null)
         {
-            transport = networkManager.GetComponent<UnityTransport>();
-            if (transport == null)
+            statusMessage = "Fusion runner unavailable";
+            return;
+        }
+
+        runner.ProvideInput = true;
+        runner.RemoveCallbacks(this);
+        runner.AddCallbacks(this);
+
+        StartGameResult result = await runner.StartGame(new StartGameArgs
+        {
+            GameMode = gameMode,
+            SessionName = sessionName,
+            SceneManager = sceneManager,
+            PlayerCount = maxPlayers
+        });
+
+        if (!result.Ok)
+        {
+            statusMessage = $"Fusion session failed: {result.ShutdownReason}";
+            Debug.LogError(result.ErrorMessage);
+            return;
+        }
+
+        OnlineSessionState.IsOnlineSession = true;
+        SetupNetworkPrefabs();
+    }
+
+    private async Task<bool> EnsureUnityAuthenticationAsync()
+    {
+        if (!servicesReady)
+        {
+            return false;
+        }
+
+        if (!SpringAuthSession.IsSignedIn || !TryGetAuthService(out IAuthenticationService auth))
+        {
+            return false;
+        }
+
+        string springUser = GetSpringUsername();
+        if (string.IsNullOrEmpty(springUser))
+        {
+            return false;
+        }
+
+        string profile = BuildUnityAuthProfile(springUser);
+
+        try
+        {
+            if (auth.IsSignedIn && string.Equals(auth.Profile, profile, System.StringComparison.Ordinal))
             {
-                transport = networkManager.gameObject.AddComponent<UnityTransport>();
+                if (auth.IsAuthorized)
+                {
+                    return true;
+                }
+
+                if (auth.SessionTokenExists)
+                {
+                    statusMessage = "Refreshing Unity session...";
+                    await auth.SignInAnonymouslyAsync();
+                    EnsureLocalRankInitialized();
+                    return auth.IsAuthorized;
+                }
+
+                auth.SignOut();
+            }
+            else if (auth.IsSignedIn)
+            {
+                auth.SignOut();
+            }
+
+            auth.SwitchProfile(profile);
+            statusMessage = auth.SessionTokenExists
+                ? "Restoring Unity session..."
+                : "Signing in to Unity Services...";
+            await auth.SignInAnonymouslyAsync();
+            EnsureLocalRankInitialized();
+
+            if (!auth.IsAuthorized)
+            {
+                await Task.Delay(250);
+                if (!auth.IsAuthorized && auth.SessionTokenExists)
+                {
+                    await auth.SignInAnonymouslyAsync();
+                }
+            }
+
+            return auth.IsAuthorized;
+        }
+        catch (System.Exception ex)
+        {
+            statusMessage = $"Unity sign-in failed: {ex.Message}";
+            Debug.LogException(ex);
+            return false;
+        }
+    }
+
+    private static string GetSpringUsername()
+    {
+        if (!string.IsNullOrWhiteSpace(SpringAuthSession.Username))
+        {
+            return SpringAuthSession.Username.Trim().ToLowerInvariant();
+        }
+
+        if (SpringAuthSession.Profile != null && !string.IsNullOrWhiteSpace(SpringAuthSession.Profile.username))
+        {
+            return SpringAuthSession.Profile.username.Trim().ToLowerInvariant();
+        }
+
+        return string.Empty;
+    }
+
+    private static string BuildUnityAuthProfile(string springUser)
+    {
+        StringBuilder builder = new StringBuilder("s_");
+        for (int i = 0; i < springUser.Length && builder.Length < 30; i++)
+        {
+            char current = springUser[i];
+            if (char.IsLetterOrDigit(current) || current == '-' || current == '_')
+            {
+                builder.Append(current);
+            }
+            else
+            {
+                builder.Append('_');
             }
         }
 
-        if (networkManager != null)
-        {
-            EnsureNetworkConfigInitialized();
-            networkManager.NetworkConfig.ConnectionApproval = false;
-        }
-
-        SetupNetworkPrefabs();
+        return builder.ToString();
     }
 
     private void SetupNetworkPrefabs()
     {
         AutoAssignNetworkPrefabs();
-
-        EnsureNetworkConfigInitialized();
-
-        if (networkManager == null || networkManager.NetworkConfig == null)
-        {
-            return;
-        }
 
         if (playerPrefab != null)
         {
@@ -1320,49 +1791,21 @@ public class OnlineLobbyManager : MonoBehaviour
                 playerController.bombPrefab = bombPrefab;
             }
 
-            networkManager.NetworkConfig.PlayerPrefab = playerPrefab.gameObject;
-            if (!playerPrefabRegistered)
-            {
-                networkManager.AddNetworkPrefab(playerPrefab.gameObject);
-                playerPrefabRegistered = true;
-            }
         }
 
-        if (bombPrefab != null && !bombPrefabRegistered)
+        if (bombPrefab != null)
         {
             OnlineBomb bomb = bombPrefab.GetComponent<OnlineBomb>();
             if (bomb != null && bomb.explosionPrefab == null && explosionPrefab != null)
             {
                 bomb.explosionPrefab = explosionPrefab;
             }
-
-            networkManager.AddNetworkPrefab(bombPrefab.gameObject);
-            bombPrefabRegistered = true;
-        }
-
-        if (explosionPrefab != null && !explosionPrefabRegistered)
-        {
-            networkManager.AddNetworkPrefab(explosionPrefab.gameObject);
-            explosionPrefabRegistered = true;
         }
     }
 
     private bool IsNetworkSessionActive()
     {
-        return networkManager != null && networkManager.IsListening;
-    }
-
-    private void EnsureNetworkConfigInitialized()
-    {
-        if (networkManager == null)
-        {
-            return;
-        }
-
-        if (networkManager.NetworkConfig == null)
-        {
-            networkManager.NetworkConfig = new NetworkConfig();
-        }
+        return runner != null && runner.IsRunning;
     }
 
     private void AutoAssignNetworkPrefabs()
@@ -1384,6 +1827,210 @@ public class OnlineLobbyManager : MonoBehaviour
         }
 #endif
     }
+
+    private void SpawnExistingPlayers()
+    {
+        if (runner == null || !runner.IsServer)
+        {
+            return;
+        }
+
+        Vector3[] spawnPoints = BuildSpawnPoints();
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(player => player.PlayerId)
+            .ToList();
+
+        for (int index = 0; index < activePlayers.Count && index < spawnPoints.Length; index++)
+        {
+            SpawnPlayer(activePlayers[index], spawnPoints[index], index);
+        }
+    }
+
+    private void SpawnPlayer(PlayerRef playerRef, Vector3 spawnPoint, int index)
+    {
+        if (runner == null || playerPrefab == null)
+        {
+            return;
+        }
+
+        NetworkObject playerObject = runner.Spawn(playerPrefab, spawnPoint, Quaternion.identity, playerRef);
+        if (playerObject == null)
+        {
+            return;
+        }
+
+        runner.SetPlayerObject(playerRef, playerObject);
+
+        OnlinePlayerController controller = playerObject.GetComponent<OnlinePlayerController>();
+        if (controller != null)
+        {
+            controller.name = $"Player{index + 1}";
+        }
+    }
+
+    private Vector3[] BuildSpawnPoints()
+    {
+        ThemeManager themeManager = ThemeManager.Instance;
+        if (themeManager != null && themeManager.IsLevelReady)
+        {
+            return themeManager.GetCornerSpawnPoints();
+        }
+
+        return new[]
+        {
+            new Vector3(-2f, 0.5f, -2f),
+            new Vector3(2f, 0.5f, -2f),
+            new Vector3(-2f, 0.5f, 2f),
+            new Vector3(2f, 0.5f, 2f)
+        };
+    }
+
+    public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
+    {
+        if (runner == null || !runner.IsServer || !gameSceneLoaded)
+        {
+            return;
+        }
+
+        Vector3[] spawnPoints = BuildSpawnPoints();
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+
+        int spawnIndex = activePlayers.IndexOf(player);
+        if (spawnIndex < 0 || spawnIndex >= spawnPoints.Length)
+        {
+            return;
+        }
+
+        SpawnPlayer(player, spawnPoints[spawnIndex], spawnIndex);
+    }
+
+    public void OnSceneLoadStart(NetworkRunner runner)
+    {
+        if (runner == null || !runner.IsServer || !isLoadingGame)
+        {
+            return;
+        }
+
+        gameSceneLoaded = false;
+        statusMessage = $"Loading {gameSceneName}...";
+    }
+
+    public void OnSceneLoadDone(NetworkRunner runner)
+    {
+        if (runner == null || !runner.IsServer || !isLoadingGame)
+        {
+            return;
+        }
+
+        StartCoroutine(SpawnPlayersAfterSceneReady());
+    }
+
+    private IEnumerator SpawnPlayersAfterSceneReady()
+    {
+        const float timeoutSeconds = 5f;
+        float elapsed = 0f;
+
+        while (elapsed < timeoutSeconds)
+        {
+            ThemeManager themeManager = ThemeManager.Instance;
+            if (themeManager != null && themeManager.IsLevelReady)
+            {
+                break;
+            }
+
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        SpawnExistingPlayers();
+        gameSceneLoaded = true;
+        isLoadingGame = false;
+        statusMessage = "Match started";
+    }
+
+    public void OnInput(NetworkRunner runner, NetworkInput input)
+    {
+        OnlinePlayerInput playerInput = new OnlinePlayerInput
+        {
+            Move = ReadMoveInput(),
+            PlaceBomb = ReadBombInput()
+        };
+
+        input.Set(playerInput);
+    }
+
+    private Vector2 ReadMoveInput()
+    {
+        if (Gamepad.current != null)
+        {
+            return Gamepad.current.leftStick.ReadValue();
+        }
+
+        if (Keyboard.current != null)
+        {
+            float h = 0f;
+            float v = 0f;
+            if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) h -= 1f;
+            if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) h += 1f;
+            if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) v += 1f;
+            if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) v -= 1f;
+            return new Vector2(h, v);
+        }
+
+        return Vector2.zero;
+    }
+
+    private bool ReadBombInput()
+    {
+        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+        {
+            return true;
+        }
+
+        if (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
+    public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason) { }
+    public void OnConnectedToServer(NetworkRunner runner) { }
+    public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { }
+    public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
+    public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { }
+    public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
+    public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) { }
+    public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
+    public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
+    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, System.ArraySegment<byte> data) { }
+    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
+    public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
+    public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
+
+    void INetworkRunnerCallbacks.OnInput(NetworkRunner runner, NetworkInput input) => OnInput(runner, input);
+    void INetworkRunnerCallbacks.OnSceneLoadDone(NetworkRunner runner) => OnSceneLoadDone(runner);
+    void INetworkRunnerCallbacks.OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) => OnObjectExitAOI(runner, obj, player);
+    void INetworkRunnerCallbacks.OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) => OnObjectEnterAOI(runner, obj, player);
+    void INetworkRunnerCallbacks.OnPlayerJoined(NetworkRunner runner, PlayerRef player) => OnPlayerJoined(runner, player);
+    void INetworkRunnerCallbacks.OnPlayerLeft(NetworkRunner runner, PlayerRef player) { }
+    void INetworkRunnerCallbacks.OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) => OnInputMissing(runner, player, input);
+    void INetworkRunnerCallbacks.OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason) => OnShutdown(runner, shutdownReason);
+    void INetworkRunnerCallbacks.OnConnectedToServer(NetworkRunner runner) => OnConnectedToServer(runner);
+    void INetworkRunnerCallbacks.OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) => OnDisconnectedFromServer(runner, reason);
+    void INetworkRunnerCallbacks.OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) => OnConnectRequest(runner, request, token);
+    void INetworkRunnerCallbacks.OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) => OnConnectFailed(runner, remoteAddress, reason);
+    void INetworkRunnerCallbacks.OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) => OnUserSimulationMessage(runner, message);
+    void INetworkRunnerCallbacks.OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) => OnSessionListUpdated(runner, sessionList);
+    void INetworkRunnerCallbacks.OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) => OnCustomAuthenticationResponse(runner, data);
+    void INetworkRunnerCallbacks.OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) => OnHostMigration(runner, hostMigrationToken);
+    void INetworkRunnerCallbacks.OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, System.ArraySegment<byte> data) => OnReliableDataReceived(runner, player, key, data);
+    void INetworkRunnerCallbacks.OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) => OnReliableDataProgress(runner, player, key, progress);
+    void INetworkRunnerCallbacks.OnSceneLoadStart(NetworkRunner runner) => OnSceneLoadStart(runner);
 
 #if UNITY_EDITOR
     private void OnValidate()

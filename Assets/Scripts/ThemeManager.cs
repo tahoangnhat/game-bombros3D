@@ -46,6 +46,8 @@ public class ThemeManager : MonoBehaviour
     
     private int currentThemeIndex = 0;
 
+    public bool IsLevelReady { get; private set; }
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -93,6 +95,8 @@ public class ThemeManager : MonoBehaviour
 
     private void ApplyTheme(SeasonTheme theme)
     {
+        IsLevelReady = false;
+
         if (theme.levelData == null)
         {
             Debug.LogError($"Theme '{theme.seasonName}' has no LevelData assigned");
@@ -117,6 +121,7 @@ public class ThemeManager : MonoBehaviour
             SpawnPlayers(theme);
         }
 
+        IsLevelReady = true;
         Debug.Log($"Applied theme: {theme.seasonName}");
 
         // Debug: log layout info to verify LevelData is used
@@ -225,19 +230,19 @@ public class ThemeManager : MonoBehaviour
                 continue;
             }
 
-            GameObject player = Instantiate(prefab, spawnPoints[i] + playerSpawnOffset, Quaternion.identity, transform);
+            GameObject player = Instantiate(prefab, spawnPoints[i], Quaternion.identity, transform);
             player.name = $"Player{i + 1}";
         }
     }
 
-    private Vector3[] GetCornerSpawnPoints()
+    public Vector3[] GetCornerSpawnPoints()
     {
         return new Vector3[]
         {
-            GetWorldPosition(1, 1),
-            GetWorldPosition(width - 2, 1),
-            GetWorldPosition(1, height - 2),
-            GetWorldPosition(width - 2, height - 2)
+            GetWorldPosition(1, 1) + playerSpawnOffset,
+            GetWorldPosition(width - 2, 1) + playerSpawnOffset,
+            GetWorldPosition(1, height - 2) + playerSpawnOffset,
+            GetWorldPosition(width - 2, height - 2) + playerSpawnOffset
         };
     }
 

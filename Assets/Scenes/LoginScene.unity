@@ -1158,6 +1158,67 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 560436643}
   m_CullTransparentMesh: 1
+--- !u!1 &700837889
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 700837891}
+  - component: {fileID: 700837890}
+  m_Layer: 0
+  m_Name: OnlineLobbyManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &700837890
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 700837889}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66c216753adaa8a4db5fde319be67325, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OnlineLobbyManager
+  lobbyName: BoomBros Online
+  maxPlayers: 4
+  minPlayersToStart: 2
+  joinLobbyCode: 
+  statusMessage: Initializing...
+  gameSceneName: GameScene
+  playerPrefab: {fileID: 368358091517084955, guid: 8122fc6253952a04ab1404b96d7aeaa9, type: 3}
+  bombPrefab: {fileID: 8623456789012345670, guid: deec0b8f2c9b5d847b35df609d14fcf8, type: 3}
+  explosionPrefab: {fileID: 1111111111111111111, guid: 17e093486026a91469e7fb65d95b67f2, type: 3}
+  autoInitialize: 1
+  allowAnonymousFallbackIfUsernamePasswordDisabled: 1
+  defaultMmr: 0
+  rankWindow: 300
+  useMockEmailOtp: 1
+  emailServiceBaseUrl: 
+  otpExpireSeconds: 300
+  otpResendCooldownSeconds: 60
+--- !u!4 &700837891
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 700837889}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 1280, y: 720, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &838557167
 GameObject:
   m_ObjectHideFlags: 0
@@ -2547,3 +2608,4 @@ SceneRoots:
   - {fileID: 346804936}
   - {fileID: 1908806567}
   - {fileID: 1456074356}
+  - {fileID: 700837891}

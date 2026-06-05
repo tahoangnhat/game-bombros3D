@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 4651422232154037605}
   - component: {fileID: 8591494813811377842}
   - component: {fileID: 6570031827719684438}
-  - component: {fileID: -7568511934897967955}
+  - component: {fileID: 8623456789012345670}
   m_Layer: 0
   m_Name: Bomb
   m_TagString: Untagged
@@ -151,14 +151,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 5102112185505152803}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 65f241bf12e434440b90851de8580419, type: 3}
+  m_Script: {fileID: 11500000, guid: ac2efba16141f134c863ce4d0265c80d, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Bomb
+  m_EditorClassIdentifier: Assembly-CSharp::OnlineBomb
   fuseTime: 2
-  explosionPrefab: {fileID: 3490958210063455705, guid: 17e093486026a91469e7fb65d95b67f2, type: 3}
+  explosionPrefab: {fileID: 1111111111111111111, guid: 17e093486026a91469e7fb65d95b67f2, type: 3}
   explosionRange: 3
   tileSize: 1
---- !u!114 &-7568511934897967955
+--- !u!114 &8623456789012345670
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -167,19 +167,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 5102112185505152803}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 2992508943
-  InScenePlacedSourceGlobalObjectIdHash: 0
-  DeferredDespawnTick: 0
-  Ownership: 1
-  AlwaysReplicateAsRoot: 1
-  SynchronizeTransform: 1
-  ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 1
-  SpawnWithObservers: 1
-  DontDestroyWithOwner: 0
-  AutoObjectParentSync: 1
-  SyncOwnerTransformWhenParented: 1
-  AllowOwnerToParent: 0
+  m_EditorClassIdentifier: Fusion.Runtime.dll::Fusion.NetworkObject
+  SortKey: 1650065587
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours:
+  - {fileID: 6570031827719684438}
+  ForceRemoteRenderTimeframe: 0
