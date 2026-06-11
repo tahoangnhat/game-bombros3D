@@ -1,44 +1,63 @@
 using System.Collections;
-using Unity.Netcode;
+using Fusion;
 using UnityEngine;
 
 public class OnlineExplosion : NetworkBehaviour
 {
-    public int damage = 1;
     public float lifeTime = 0.35f;
-    public float hitRadius = 0.45f;
-    public LayerMask damageMask = ~0;
 
-    public override void OnNetworkSpawn()
+    [Networked] public int DestroyCellX { get; set; }
+    [Networked] public int DestroyCellZ { get; set; }
+    [Networked] public NetworkBool ShouldDestroyCell { get; set; }
+
+    private bool destroyApplied;
+
+    public void ConfigureCell(int cellX, int cellZ, bool destroyDestructible)
     {
-        if (IsServer)
+        if (!Object.HasStateAuthority)
         {
-            ApplyDamage();
+            return;
+        }
+
+        DestroyCellX = cellX;
+        DestroyCellZ = cellZ;
+        ShouldDestroyCell = destroyDestructible;
+    }
+
+    public override void Spawned()
+    {
+        TryApplyDestroy();
+
+        if (Object.HasStateAuthority)
+        {
             StartCoroutine(DespawnAfterDelay());
         }
     }
 
-    private void ApplyDamage()
+    public override void Render()
     {
-        Collider[] hits = Physics.OverlapSphere(transform.position, hitRadius, damageMask, QueryTriggerInteraction.Collide);
+        TryApplyDestroy();
+    }
 
-        foreach (Collider hit in hits)
+    private void TryApplyDestroy()
+    {
+        if (destroyApplied || !ShouldDestroyCell)
         {
-            OnlinePlayerHealth health = hit.GetComponentInParent<OnlinePlayerHealth>();
-            if (health != null)
-            {
-                health.TakeDamage(damage);
-            }
+            return;
         }
+
+        destroyApplied = true;
+        MatchGridState.MarkDestroyed(DestroyCellX, DestroyCellZ);
+        DestructibleWall.DestroyAtCell(DestroyCellX, DestroyCellZ);
     }
 
     private IEnumerator DespawnAfterDelay()
     {
         yield return new WaitForSeconds(lifeTime);
 
-        if (NetworkObject != null && NetworkObject.IsSpawned)
+        if (Object != null && Object.IsValid)
         {
-            NetworkObject.Despawn(true);
+            Runner.Despawn(Object);
         }
     }
 }

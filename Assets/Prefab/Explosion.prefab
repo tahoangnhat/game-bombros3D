@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 1999471528794243450}
   - component: {fileID: 2222222222222222222}
   - component: {fileID: 1111111111111111111}
+  - component: {fileID: 4299558370581482004}
   m_Layer: 0
   m_Name: Explosion
   m_TagString: Untagged
@@ -46,12 +47,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5fec490b6fc78cc4ca549b6e56c2e049, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OnlineExplosion
-  damage: 1
   lifeTime: 0.35
-  hitRadius: 0.45
-  damageMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
+  _DestroyCellX: 0
+  _DestroyCellZ: 0
+  _ShouldDestroyCell:
+    _value: 0
 --- !u!114 &1111111111111111111
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -70,7 +70,25 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 2222222222222222222}
+  - {fileID: 4299558370581482004}
   ForceRemoteRenderTimeframe: 0
+--- !u!114 &4299558370581482004
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3490958210063455705}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 158639473, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Fusion.Runtime.dll::Fusion.NetworkTransform
+  _stateAuthorityChangeErrorCorrectionDelta: 0
+  SyncScale: 0
+  SyncParent: 0
+  _autoAOIOverride: 1
+  DisableSharedModeInterpolation: 0
 --- !u!1 &4892199401519111800
 GameObject:
   m_ObjectHideFlags: 0

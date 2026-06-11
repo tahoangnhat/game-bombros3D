@@ -27,6 +27,33 @@ public class LevelDataGenerator
         CreateLevelData("Winter", CreateSeasonalLayout());
     }
 
+    [MenuItem("Assets/Create Level Data/Regenerate All Season Levels")]
+    public static void RegenerateAllSeasonLevels()
+    {
+        string[] themeNames = { "Spring", "Summer", "Autumn", "Winter" };
+        CellType[] layout = CreateSeasonalLayout();
+
+        foreach (string themeName in themeNames)
+        {
+            string path = $"Assets/Resources/Levels/Level_{themeName}.asset";
+            LevelData levelData = AssetDatabase.LoadAssetAtPath<LevelData>(path);
+            if (levelData == null)
+            {
+                CreateLevelData(themeName, layout);
+                continue;
+            }
+
+            levelData.width = 15;
+            levelData.height = 13;
+            levelData.layout = (CellType[])layout.Clone();
+            EditorUtility.SetDirty(levelData);
+            Debug.Log($"Regenerated {themeName} level at {path}");
+        }
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+    }
+
     private static void CreateLevelData(string themeName, CellType[] layout)
     {
         LevelData levelData = ScriptableObject.CreateInstance<LevelData>();
@@ -83,12 +110,13 @@ public class LevelDataGenerator
                 CellType current = GetCell(layout, x, z, width);
                 if (current == CellType.Empty)
                 {
-                    // Keep four corner spawn areas clear.
+                    // Keep four corner spawn areas clear (3x3 playable zone ending at grid index 3).
+                    const int spawnCornerIndex = 3;
                     bool isSpawnCorner =
-                        (x <= 2 && z <= 2) ||
-                        (x >= width - 3 && z <= 2) ||
-                        (x <= 2 && z >= height - 3) ||
-                        (x >= width - 3 && z >= height - 3);
+                        (x <= spawnCornerIndex && z <= spawnCornerIndex) ||
+                        (x >= width - 1 - spawnCornerIndex && z <= spawnCornerIndex) ||
+                        (x <= spawnCornerIndex && z >= height - 1 - spawnCornerIndex) ||
+                        (x >= width - 1 - spawnCornerIndex && z >= height - 1 - spawnCornerIndex);
                     
                     if (!isSpawnCorner)
                     {

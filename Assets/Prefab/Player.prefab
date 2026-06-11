@@ -13,10 +13,10 @@ GameObject:
   - component: {fileID: 3829611971304147839}
   - component: {fileID: 4702526369485734646}
   - component: {fileID: 8158296950557793201}
-  - component: {fileID: 8501386819765412087}
-  - component: {fileID: 4656616002575944054}
   - component: {fileID: 6479369383603884549}
   - component: {fileID: 6001697204301001358}
+  - component: {fileID: 368358091517084955}
+  - component: {fileID: 3255430609711351871}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -146,77 +146,6 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 112
   m_CollisionDetection: 0
---- !u!114 &8501386819765412087
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2297941642325355428}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 2410588987
-  InScenePlacedSourceGlobalObjectIdHash: 0
-  DeferredDespawnTick: 0
-  Ownership: 1
-  AlwaysReplicateAsRoot: 1
-  SynchronizeTransform: 1
-  ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 1
-  SpawnWithObservers: 1
-  DontDestroyWithOwner: 0
-  AutoObjectParentSync: 1
-  SyncOwnerTransformWhenParented: 1
-  AllowOwnerToParent: 0
---- !u!114 &4656616002575944054
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2297941642325355428}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 31800fec842c0694f8cc9d0158d3d982, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ClientNetworkTransform
-  ShowTopMostFoldoutHeaderGroup: 1
-  NetworkTransformExpanded: 1
-  AutoOwnerAuthorityTickOffset: 1
-  PositionInterpolationType: 0
-  RotationInterpolationType: 0
-  ScaleInterpolationType: 0
-  PositionLerpSmoothing: 1
-  PositionMaxInterpolationTime: 0.1
-  RotationLerpSmoothing: 1
-  RotationMaxInterpolationTime: 0.1
-  ScaleLerpSmoothing: 1
-  ScaleMaxInterpolationTime: 0.1
-  AuthorityMode: 0
-  TickSyncChildren: 0
-  UseUnreliableDeltas: 0
-  SyncPositionX: 1
-  SyncPositionY: 1
-  SyncPositionZ: 1
-  SyncRotAngleX: 1
-  SyncRotAngleY: 1
-  SyncRotAngleZ: 1
-  SyncScaleX: 1
-  SyncScaleY: 1
-  SyncScaleZ: 1
-  PositionThreshold: 0.001
-  RotAngleThreshold: 0.01
-  ScaleThreshold: 0.01
-  UseQuaternionSynchronization: 0
-  UseQuaternionCompression: 0
-  UseHalfFloatPrecision: 0
-  InLocalSpace: 0
-  SwitchTransformSpaceWhenParented: 0
-  Interpolate: 1
-  SlerpPosition: 0
 --- !u!114 &6479369383603884549
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -229,11 +158,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 656d5cc6c7b3fb948b5fce692aff3088, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OnlinePlayerController
-  ShowTopMostFoldoutHeaderGroup: 1
   moveSpeed: 5
   airControl: 0.5
-  bombPrefab: {fileID: 0}
+  bombPrefab: {fileID: 8623456789012345670, guid: deec0b8f2c9b5d847b35df609d14fcf8, type: 3}
   bombCooldown: 0.5
+  tileHighlight: {fileID: 0}
+  tileHighlightYOffset: 0.05
   groundCheck: {fileID: 0}
   groundDistance: 0.2
   groundMask:
@@ -251,7 +181,43 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 829a6a3fff38f0f43ae5a8f424ea3d68, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OnlinePlayerHealth
-  ShowTopMostFoldoutHeaderGroup: 1
   maxHealth: 1
-  CurrentHealth:
-    m_InternalValue: 1
+  _CurrentHealth: 0
+--- !u!114 &368358091517084955
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2297941642325355428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Fusion.Runtime.dll::Fusion.NetworkObject
+  SortKey: 4228619082
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours:
+  - {fileID: 6479369383603884549}
+  - {fileID: 6001697204301001358}
+  - {fileID: 3255430609711351871}
+  ForceRemoteRenderTimeframe: 0
+--- !u!114 &3255430609711351871
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2297941642325355428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 158639473, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Fusion.Runtime.dll::Fusion.NetworkTransform
+  _stateAuthorityChangeErrorCorrectionDelta: 0
+  SyncScale: 0
+  SyncParent: 0
+  _autoAOIOverride: 1
+  DisableSharedModeInterpolation: 0

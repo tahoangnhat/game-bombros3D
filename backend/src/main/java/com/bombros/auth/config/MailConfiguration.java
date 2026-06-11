@@ -31,7 +31,8 @@ public class MailConfiguration {
         // Avoid logging the password itself. Only set it on the mail sender.
         mailSender.setPassword(sanitized);
 
-        boolean passwordPresent = mailSender.getPassword() != null && !mailSender.getPassword().isEmpty();
+        String configuredPassword = mailSender.getPassword();
+        boolean passwordPresent = configuredPassword != null && !configuredPassword.isEmpty();
         log.info("Mail sender configured for user '{}' (password present: {})", username, passwordPresent);
     }
 }

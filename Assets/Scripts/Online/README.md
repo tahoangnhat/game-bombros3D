@@ -1,20 +1,26 @@
 # Online Lobby Setup
 
 1. Install the multiplayer packages in `Packages/manifest.json`.
-2. Create a lobby/menu scene and add an empty GameObject with `OnlineLobbyManager`.
-3. Assign these prefabs on `OnlineLobbyManager`:
+2. Create a Photon Fusion 2 App Id in the [Photon Dashboard](https://dashboard.photonengine.com/) and paste it into `Assets/Photon/Fusion/Resources/PhotonAppSettings.asset` (`App Id Fusion`). You can also open **Tools > Fusion > Fusion Hub** in Unity.
+3. Create a lobby/menu scene and add an empty GameObject with `OnlineLobbyManager`.
+4. Assign these prefabs on `OnlineLobbyManager`:
    - `playerPrefab` -> network player prefab with `NetworkObject`, `ClientNetworkTransform`, `OnlinePlayerController`, `OnlinePlayerHealth`
    - `bombPrefab` -> network bomb prefab with `NetworkObject`, `OnlineBomb`
    - `explosionPrefab` -> network explosion prefab with `NetworkObject`, `OnlineExplosion`
-4. Set `gameSceneName` to the map scene name, for example `SampleScene`.
-5. Add `OnlineGameSpawner` to the game scene so the host places players at the four corners after load.
-6. Keep `ThemeManager` in the map scene. It will skip local player spawning while `OnlineSessionState.IsOnlineSession` is true.
+5. Set `gameSceneName` to the map scene name, for example `SampleScene`.
+6. Add `OnlineGameSpawner` to the game scene so the host places players at the four corners after load.
+7. Keep `ThemeManager` in the map scene. It will skip local player spawning while `OnlineSessionState.IsOnlineSession` is true.
 
 Default flow:
-- Host clicks `Create Lobby & Host`
+- Host clicks `Create Lobby & Host` and waits until the status shows the lobby code
 - Share the lobby code with friends
-- 2 to 4 players join
+- Clients join only after the host lobby is ready
+- 2 to 4 players mark READY
 - Host clicks `Start Game`
+
+Troubleshooting:
+- `Game does not exist (ErrorCode: 32758)` usually means the Fusion cloud room does not exist yet. The host must create the lobby first, or the Photon App Id is missing/invalid.
+- If host and client are in different regions, set the same `Fixed Region` in `PhotonAppSettings.asset` (for Vietnam, try `asia`).
 
 Notes:
 - `OnlinePlayerController` uses owner-authoritative movement and places bombs through a server RPC.

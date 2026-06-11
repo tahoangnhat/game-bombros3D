@@ -22,6 +22,7 @@ public class PlayerController : MonoBehaviour
     public LayerMask groundMask = ~0; // default: everything
 
     Rigidbody rb;
+    Collider bodyCollider;
     Vector3 inputDirection;
     bool isGrounded;
     float lastBombTime = -10f;
@@ -29,6 +30,7 @@ public class PlayerController : MonoBehaviour
     void Awake()
     {
         rb = GetComponent<Rigidbody>();
+        bodyCollider = GetComponent<Collider>();
         rb.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionY;
     }
 
@@ -91,16 +93,48 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        rb.MovePosition(rb.position + moveStep);
+        if (PlayerMovementUtility.TryMove(transform, bodyCollider, moveStep))
+        {
+            rb.position = transform.position;
+        }
     }
 
     void PlaceBomb()
     {
         if (bombPrefab == null) return;
 
-        Vector3 spawnPos = GetNearestGridCenter(transform.position);
+        GridUtility.TryWorldToCell(transform.position, out int cellX, out int cellZ);
+        if (HasBombAtCell(cellX, cellZ))
+        {
+            return;
+        }
 
-        Instantiate(bombPrefab, spawnPos, Quaternion.identity);
+        Vector3 spawnPos = GridUtility.GetCellCenter(cellX, cellZ);
+        spawnPos.y = transform.position.y;
+
+        GameObject bombObject = Instantiate(bombPrefab, spawnPos, Quaternion.identity);
+        Bomb bomb = bombObject.GetComponent<Bomb>();
+        if (bomb != null)
+        {
+            bomb.SetOwnerCollider(GetComponent<Collider>());
+        }
+    }
+
+    bool HasBombAtCell(int cellX, int cellZ)
+    {
+        Vector3 center = GridUtility.GetCellCenter(cellX, cellZ);
+        float radius = GridUtility.GetCellSize() * 0.35f;
+        Collider[] hits = Physics.OverlapSphere(center, radius, ~0, QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            if (hits[i].GetComponentInParent<Bomb>() != null)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     void UpdateTileHighlight()

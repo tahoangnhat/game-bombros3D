@@ -1,9 +1,5 @@
-using Unity.Netcode.Components;
+using UnityEngine;
 
-public class ClientNetworkTransform : NetworkTransform
+public class ClientNetworkTransform : MonoBehaviour
 {
-    protected override bool OnIsServerAuthoritative()
-    {
-        return false;
-    }
 }

@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 8591494813811377842}
   - component: {fileID: 6570031827719684438}
   - component: {fileID: 8623456789012345670}
+  - component: {fileID: 8804637921853250339}
   m_Layer: 0
   m_Name: Bomb
   m_TagString: Untagged
@@ -137,8 +138,8 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
+  m_UseGravity: 0
+  m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
@@ -156,8 +157,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OnlineBomb
   fuseTime: 2
   explosionPrefab: {fileID: 1111111111111111111, guid: 17e093486026a91469e7fb65d95b67f2, type: 3}
-  explosionRange: 3
-  tileSize: 1
+  explosionRange: 1
 --- !u!114 &8623456789012345670
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -176,4 +176,22 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 6570031827719684438}
+  - {fileID: 8804637921853250339}
   ForceRemoteRenderTimeframe: 0
+--- !u!114 &8804637921853250339
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5102112185505152803}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 158639473, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Fusion.Runtime.dll::Fusion.NetworkTransform
+  _stateAuthorityChangeErrorCorrectionDelta: 0
+  SyncScale: 0
+  SyncParent: 0
+  _autoAOIOverride: 1
+  DisableSharedModeInterpolation: 0

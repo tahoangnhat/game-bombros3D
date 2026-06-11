@@ -83,28 +83,30 @@ public class LevelDataEditor : Editor
     }
 
     private string GetCellLabel(CellType type)
+{
+    return type switch
     {
-        return type switch
-        {
-            CellType.Empty => ".",
-            CellType.BorderWall => "B",
-            CellType.MiddleWall => "M",
-            CellType.DestructibleWall => "D",
-            _ => "?"
-        };
-    }
+        CellType.Empty => ".",
+        CellType.BorderWall => "B",
+        CellType.MiddleWall => "M",
+        CellType.DestructibleWall => "D",
+        CellType.PlayerSpawn => "P",
+        _ => "?"
+    };
+}
 
-    private Color GetCellColor(CellType type)
+private Color GetCellColor(CellType type)
+{
+    return type switch
     {
-        return type switch
-        {
-            CellType.Empty => new Color(0.9f, 0.9f, 0.9f),
-            CellType.BorderWall => new Color(0.8f, 0.6f, 0.4f),  // Brown
-            CellType.MiddleWall => new Color(0.6f, 0.6f, 0.6f),  // Gray
-            CellType.DestructibleWall => new Color(0.4f, 0.8f, 0.4f),  // Green
-            _ => Color.white
-        };
-    }
+        CellType.Empty => new Color(0.9f, 0.9f, 0.9f),
+        CellType.BorderWall => new Color(0.8f, 0.6f, 0.4f),  // Brown
+        CellType.MiddleWall => new Color(0.6f, 0.6f, 0.6f),  // Gray
+        CellType.DestructibleWall => new Color(0.4f, 0.8f, 0.4f),  // Green
+        CellType.PlayerSpawn => new Color(0.2f, 0.6f, 1f), // <-- Màu Xanh Dương nổi bật cho Spawn Point
+        _ => Color.white
+    };
+}
 
     private void FillBorders()
     {

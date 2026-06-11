@@ -1198,8 +1198,6 @@ MonoBehaviour:
   explosionPrefab: {fileID: 1111111111111111111, guid: 17e093486026a91469e7fb65d95b67f2, type: 3}
   autoInitialize: 1
   allowAnonymousFallbackIfUsernamePasswordDisabled: 1
-  defaultMmr: 0
-  rankWindow: 300
   useMockEmailOtp: 1
   emailServiceBaseUrl: 
   otpExpireSeconds: 300

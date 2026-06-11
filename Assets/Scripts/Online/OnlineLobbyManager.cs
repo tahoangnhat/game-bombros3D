@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Fusion;
@@ -10,14 +9,11 @@ using Unity.Services.Core;
 using Unity.Services.Lobbies;
 using Unity.Services.Lobbies.Models;
 using UnityEngine;
-using UnityEngine.InputSystem;
 using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
 
 public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 {
-    private const string LobbyRankMmrKey = "rankMmr";
-    private const string LobbyRankBucketKey = "rankBucket";
     private const string ReadyKey = "ready";
     private const string DisplayNameKey = "displayName";
 
@@ -32,6 +28,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     [Header("Scenes")]
     public string gameSceneName = "GameScene";
+    public string lobbySceneName = "LobbyScene";
 
     [Header("Network Prefabs")]
     public NetworkObject playerPrefab;
@@ -41,10 +38,6 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     [Header("Runtime")]
     public bool autoInitialize = true;
     public bool allowAnonymousFallbackIfUsernamePasswordDisabled = true;
-
-    [Header("Rank")]
-    public int defaultMmr = 0;
-    public int rankWindow = 300;
 
     [Header("Email / OTP")]
     public bool useMockEmailOtp = true;
@@ -62,43 +55,32 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     private bool localReady;
     private bool isLoadingGame;
     private bool gameSceneLoaded;
+    private Coroutine matchSpawnCoroutine;
     private bool isLobbyConnectionInProgress;
     private float lobbyRefreshGraceUntil = -1f;
     private float lastOtpRequestTime = -999f;
     private string pendingOtpEmail = string.Empty;
     private string pendingOtpCode = string.Empty;
     private float pendingOtpExpireAt = -1f;
-
-    private static readonly string[] RankTiers =
-    {
-        "Bronze",
-        "Silver",
-        "Gold",
-        "Platinum",
-        "Diamond",
-        "Master"
-    };
-
-    private const int RankStep = 100;
-    private const int WinPoints = 25;
-    private const int LosePoints = -10;
+    private readonly OnlinePlayerInputReader inputReader = new OnlinePlayerInputReader();
 
     private const float HeartbeatInterval = 15f;
     private const float PollInterval = 2f;
     private const float LobbyRefreshGraceSeconds = 3f;
     private const int JoinLobbyRetryAttempts = 3;
     private const int JoinLobbyRetryDelayMs = 1000;
+    private const int FusionJoinRetryAttempts = 6;
+    private const int FusionJoinRetryDelayMs = 1500;
 
     public bool ServicesReady => servicesReady;
     public bool IsHostLobby => isHost;
     public bool IsSignedIn => (TryGetAuthService(out IAuthenticationService auth) && auth.IsSignedIn) || SpringAuthSession.IsSignedIn;
     public Lobby CurrentLobby => currentLobby;
     public string CurrentLobbyCode => currentLobby != null ? currentLobby.LobbyCode : string.Empty;
-    public int CurrentMmr => GetLocalMmr();
-    public string CurrentRankTier => GetRankTier(CurrentMmr);
     public float OtpResendRemainingSeconds => Mathf.Max(0f, otpResendCooldownSeconds - (Time.unscaledTime - lastOtpRequestTime));
     public bool CanResendOtp => !string.IsNullOrEmpty(pendingOtpEmail) && OtpResendRemainingSeconds <= 0f;
     public bool CanUseLobbyActions => servicesReady && IsSignedIn && !IsNetworkSessionActive();
+    public bool IsMatchActive => gameSceneLoaded;
 
     public bool CanToggleReady => servicesReady && currentLobby != null && !string.IsNullOrEmpty(GetPlayerIdSafe());
 
@@ -297,23 +279,6 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         _ = LogoutAsync();
     }
 
-    public void ApplyRankDelta(int delta)
-    {
-        if (!IsSignedIn)
-        {
-            return;
-        }
-
-        int next = Mathf.Clamp(GetLocalMmr() + delta, 0, 9999);
-        SaveLocalMmr(next);
-        statusMessage = $"Rank updated: {CurrentRankTier} ({CurrentMmr})";
-    }
-
-    public void ApplyMatchResult(bool won)
-    {
-        ApplyRankDelta(won ? WinPoints : LosePoints);
-    }
-
     public void JoinLobbyByInputCode()
     {
         _ = JoinLobbyAndConnectAsync(joinLobbyCode);
@@ -404,8 +369,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             string trimmedUsername = username.Trim();
             await auth.SignUpWithUsernamePasswordAsync(trimmedUsername, password);
             SaveEmailUsernameMapping(email, trimmedUsername);
-            EnsureLocalRankInitialized();
-            statusMessage = $"Registered & logged in as {BuildLocalDisplayName()} | Rank {CurrentRankTier} ({CurrentMmr})";
+            statusMessage = $"Registered & logged in as {BuildLocalDisplayName()}";
 
             if (!string.IsNullOrWhiteSpace(email))
             {
@@ -456,8 +420,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
             string username = ResolveUsernameForLogin(usernameOrEmail.Trim());
             await auth.SignInWithUsernamePasswordAsync(username, password);
-            EnsureLocalRankInitialized();
-            statusMessage = $"Logged in as {BuildLocalDisplayName()} | Rank {CurrentRankTier} ({CurrentMmr})";
+            statusMessage = $"Logged in as {BuildLocalDisplayName()}";
         }
         catch (System.Exception ex)
         {
@@ -490,7 +453,6 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             try
             {
                 await auth.SignInAnonymouslyAsync();
-                EnsureLocalRankInitialized();
                 statusMessage = $"Username/Password is OFF in Unity Dashboard. Signed in as guest for now ({flow} fallback).";
                 return;
             }
@@ -642,22 +604,33 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         try
         {
             statusMessage = "Creating lobby...";
-            CreateLobbyOptions options = new CreateLobbyOptions
-            {
-                Data = new Dictionary<string, DataObject>
-                {
-                    { LobbyRankMmrKey, new DataObject(DataObject.VisibilityOptions.Public, CurrentMmr.ToString(), DataObject.IndexOptions.N1) },
-                    { LobbyRankBucketKey, new DataObject(DataObject.VisibilityOptions.Public, BuildRankBucket(CurrentMmr), DataObject.IndexOptions.S1) }
-                }
-            };
-
-            currentLobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers, options);
+            currentLobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers);
             isHost = true;
             await SendHeartbeatAsync();
             await SetLocalReadyAsync(true);
 
             statusMessage = "Starting Fusion host session...";
-            await StartFusionSessionAsync(GameMode.Host, currentLobby.LobbyCode);
+            if (!await StartFusionSessionAsync(GameMode.Host, currentLobby.LobbyCode))
+            {
+                string lobbyId = currentLobby.Id;
+                currentLobby = null;
+                isHost = false;
+
+                if (!string.IsNullOrWhiteSpace(lobbyId))
+                {
+                    try
+                    {
+                        await LobbyService.Instance.DeleteLobbyAsync(lobbyId);
+                    }
+                    catch (System.Exception cleanupEx)
+                    {
+                        Debug.LogWarning($"Could not delete lobby after Fusion host failure: {cleanupEx.Message}");
+                    }
+                }
+
+                return;
+            }
+
             statusMessage = $"Lobby created. Code: {currentLobby.LobbyCode}";
             MarkLobbyRefreshGracePeriod();
         }
@@ -714,7 +687,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             }
 
             statusMessage = "Starting Fusion client session...";
-            await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode);
+            if (!await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode))
+            {
+                return;
+            }
 
             isHost = false;
             await SetLocalReadyAsync(false);
@@ -1023,17 +999,14 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         isLobbyConnectionInProgress = true;
         try
         {
-            statusMessage = "Quick joining by rank...";
-            currentLobby = await FindRankedLobbyAsync();
-
-            if (currentLobby == null)
-            {
-                statusMessage = "No same-rank lobby, trying random quick join...";
-                currentLobby = await LobbyService.Instance.QuickJoinLobbyAsync();
-            }
+            statusMessage = "Quick joining...";
+            currentLobby = await LobbyService.Instance.QuickJoinLobbyAsync();
 
             statusMessage = "Starting Fusion client session...";
-            await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode);
+            if (!await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode))
+            {
+                return;
+            }
 
             isHost = false;
             await SetLocalReadyAsync(false);
@@ -1077,17 +1050,25 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        if (runner == null || !runner.IsRunning)
+        {
+            statusMessage = "Network session is not running";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(gameSceneName))
+        {
+            statusMessage = "Game scene name is empty";
+            return;
+        }
+
         OnlineSessionState.IsOnlineSession = true;
         isLoadingGame = true;
         gameSceneLoaded = false;
-        statusMessage = "Starting game...";
+        statusMessage = $"Starting {gameSceneName}...";
 
-        if (runner != null && runner.IsRunning)
-        {
-            _ = runner.LoadScene(gameSceneName, LoadSceneMode.Single, LocalPhysicsMode.Physics3D, true);
-        }
-
-        await Task.CompletedTask;
+        // Multiple peer mode (ParrelSync / Fusion PeerMode.Multiple) does not support LocalPhysicsMode.Physics3D.
+        await runner.LoadScene(gameSceneName, LoadSceneMode.Single, LocalPhysicsMode.None, true);
     }
 
     private async Task LeaveSessionAsync()
@@ -1212,43 +1193,21 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         isHost = false;
         localReady = false;
         isLoadingGame = false;
+        gameSceneLoaded = false;
         lobbyRefreshGraceUntil = -1f;
         OnlineSessionState.IsOnlineSession = false;
         statusMessage = message;
+
+        if (matchSpawnCoroutine != null)
+        {
+            StopCoroutine(matchSpawnCoroutine);
+            matchSpawnCoroutine = null;
+        }
     }
 
     private static bool IsFatalLobbyRefreshError(LobbyServiceException ex)
     {
         return ex != null && ex.Reason == LobbyExceptionReason.EntityNotFound;
-    }
-
-    private async Task<Lobby> FindRankedLobbyAsync()
-    {
-        int mmr = CurrentMmr;
-        int minMmr = mmr - Mathf.Max(50, rankWindow);
-        int maxMmr = mmr + Mathf.Max(50, rankWindow);
-
-        QueryLobbiesOptions queryOptions = new QueryLobbiesOptions
-        {
-            Count = 25,
-            SampleResults = true,
-            Filters = new List<QueryFilter>
-            {
-                new QueryFilter(QueryFilter.FieldOptions.AvailableSlots, "0", QueryFilter.OpOptions.GT),
-                new QueryFilter(QueryFilter.FieldOptions.MaxPlayers, "2", QueryFilter.OpOptions.GE),
-                new QueryFilter(QueryFilter.FieldOptions.N1, minMmr.ToString(), QueryFilter.OpOptions.GE),
-                new QueryFilter(QueryFilter.FieldOptions.N1, maxMmr.ToString(), QueryFilter.OpOptions.LE)
-            }
-        };
-
-        QueryResponse response = await LobbyService.Instance.QueryLobbiesAsync(queryOptions);
-        if (response?.Results == null || response.Results.Count == 0)
-        {
-            return null;
-        }
-
-        int pick = Random.Range(0, response.Results.Count);
-        return await LobbyService.Instance.JoinLobbyByIdAsync(response.Results[pick].Id);
     }
 
     private async Task ToggleReadyAsync()
@@ -1389,52 +1348,6 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         int shortLength = Mathf.Min(6, playerId.Length);
         return $"P-{playerId.Substring(0, shortLength)}";
-    }
-
-    private void EnsureLocalRankInitialized()
-    {
-        string key = BuildMmrStorageKey();
-        if (!PlayerPrefs.HasKey(key))
-        {
-            PlayerPrefs.SetInt(key, defaultMmr);
-            PlayerPrefs.Save();
-        }
-    }
-
-    private int GetLocalMmr()
-    {
-        EnsureLocalRankInitialized();
-        return PlayerPrefs.GetInt(BuildMmrStorageKey(), defaultMmr);
-    }
-
-    private void SaveLocalMmr(int value)
-    {
-        PlayerPrefs.SetInt(BuildMmrStorageKey(), value);
-        PlayerPrefs.Save();
-    }
-
-    private string BuildMmrStorageKey()
-    {
-        string playerId = GetPlayerIdSafe();
-        if (string.IsNullOrEmpty(playerId))
-        {
-            return "boom_rank_guest";
-        }
-
-        return "boom_rank_" + playerId;
-    }
-
-    private static string BuildRankBucket(int mmr)
-    {
-        string tier = GetRankTier(mmr);
-        return tier.ToLowerInvariant();
-    }
-
-    private static string GetRankTier(int mmr)
-    {
-        int clampedMmr = Mathf.Max(0, mmr);
-        int tierIndex = Mathf.Clamp(clampedMmr / RankStep, 0, RankTiers.Length - 1);
-        return RankTiers[tierIndex];
     }
 
     private static string BuildEmailMappingKey(string email)
@@ -1634,9 +1547,16 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         public string newPassword;
     }
 
-    private async Task StartFusionSessionAsync(GameMode gameMode, string sessionName)
+    private async Task<bool> StartFusionSessionAsync(GameMode gameMode, string sessionName)
     {
         AutoAssignNetworkPrefabs();
+
+        string normalizedSessionName = NormalizeLobbyCodeInput(sessionName);
+        if (string.IsNullOrWhiteSpace(normalizedSessionName))
+        {
+            statusMessage = "Fusion session name is invalid";
+            return false;
+        }
 
         if (runner == null)
         {
@@ -1649,30 +1569,100 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         if (runner == null)
         {
             statusMessage = "Fusion runner unavailable";
-            return;
+            return false;
+        }
+
+        if (runner.GetComponent<NetworkObjectProviderDefault>() == null)
+        {
+            runner.gameObject.AddComponent<NetworkObjectProviderDefault>();
+        }
+
+        if (!await EnsureRunnerShutdownAsync())
+        {
+            statusMessage = "Could not reset Fusion runner";
+            return false;
         }
 
         runner.ProvideInput = true;
         runner.RemoveCallbacks(this);
         runner.AddCallbacks(this);
 
-        StartGameResult result = await runner.StartGame(new StartGameArgs
+        int maxAttempts = gameMode == GameMode.Client ? FusionJoinRetryAttempts : 1;
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
-            GameMode = gameMode,
-            SessionName = sessionName,
-            SceneManager = sceneManager,
-            PlayerCount = maxPlayers
-        });
+            if (attempt > 0)
+            {
+                statusMessage = $"Waiting for host Fusion session ({attempt + 1}/{maxAttempts})...";
+                await Task.Delay(FusionJoinRetryDelayMs);
+            }
 
-        if (!result.Ok)
-        {
-            statusMessage = $"Fusion session failed: {result.ShutdownReason}";
+            StartGameResult result = await runner.StartGame(new StartGameArgs
+            {
+                GameMode = gameMode,
+                SessionName = normalizedSessionName,
+                SceneManager = sceneManager,
+                PlayerCount = maxPlayers
+            });
+
+            if (result.Ok)
+            {
+                OnlineSessionState.IsOnlineSession = true;
+                SetupNetworkPrefabs();
+                return true;
+            }
+
+            bool canRetry = gameMode == GameMode.Client
+                && result.ShutdownReason == ShutdownReason.GameNotFound
+                && attempt < maxAttempts - 1;
+            if (canRetry)
+            {
+                continue;
+            }
+
+            statusMessage = BuildFusionStartFailureMessage(gameMode, result);
             Debug.LogError(result.ErrorMessage);
-            return;
+            return false;
         }
 
-        OnlineSessionState.IsOnlineSession = true;
-        SetupNetworkPrefabs();
+        statusMessage = "Fusion session failed: host room not found";
+        return false;
+    }
+
+    private async Task<bool> EnsureRunnerShutdownAsync()
+    {
+        if (runner == null || !runner.IsRunning)
+        {
+            return true;
+        }
+
+        runner.Shutdown();
+
+        for (int i = 0; i < 40; i++)
+        {
+            if (!runner.IsRunning)
+            {
+                return true;
+            }
+
+            await Task.Delay(50);
+        }
+
+        return !runner.IsRunning;
+    }
+
+    private static string BuildFusionStartFailureMessage(GameMode gameMode, StartGameResult result)
+    {
+        if (result.ShutdownReason == ShutdownReason.GameNotFound)
+        {
+            if (gameMode == GameMode.Client)
+            {
+                return "Fusion room not found. Make sure the host clicked Create Lobby & Host and wait a few seconds before joining.";
+            }
+
+            return "Fusion cloud session failed. Open Tools > Fusion > Fusion Hub and verify App Id Fusion in PhotonAppSettings.";
+        }
+
+        return $"Fusion session failed: {result.ShutdownReason}";
     }
 
     private async Task<bool> EnsureUnityAuthenticationAsync()
@@ -1708,7 +1698,6 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                 {
                     statusMessage = "Refreshing Unity session...";
                     await auth.SignInAnonymouslyAsync();
-                    EnsureLocalRankInitialized();
                     return auth.IsAuthorized;
                 }
 
@@ -1724,7 +1713,6 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                 ? "Restoring Unity session..."
                 : "Signing in to Unity Services...";
             await auth.SignInAnonymouslyAsync();
-            EnsureLocalRankInitialized();
 
             if (!auth.IsAuthorized)
             {
@@ -1782,25 +1770,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     private void SetupNetworkPrefabs()
     {
         AutoAssignNetworkPrefabs();
-
-        if (playerPrefab != null)
-        {
-            OnlinePlayerController playerController = playerPrefab.GetComponent<OnlinePlayerController>();
-            if (playerController != null && playerController.bombPrefab == null && bombPrefab != null)
-            {
-                playerController.bombPrefab = bombPrefab;
-            }
-
-        }
-
-        if (bombPrefab != null)
-        {
-            OnlineBomb bomb = bombPrefab.GetComponent<OnlineBomb>();
-            if (bomb != null && bomb.explosionPrefab == null && explosionPrefab != null)
-            {
-                bomb.explosionPrefab = explosionPrefab;
-            }
-        }
+        OnlineNetworkPrefabBinder.SetupPrefabLinks(playerPrefab, bombPrefab, explosionPrefab);
     }
 
     private bool IsNetworkSessionActive()
@@ -1810,121 +1780,73 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private void AutoAssignNetworkPrefabs()
     {
-#if UNITY_EDITOR
-        if (playerPrefab == null)
-        {
-            playerPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<NetworkObject>("Assets/Prefab/Player.prefab");
-        }
-
-        if (bombPrefab == null)
-        {
-            bombPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<NetworkObject>("Assets/Prefab/Bomb.prefab");
-        }
-
-        if (explosionPrefab == null)
-        {
-            explosionPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<NetworkObject>("Assets/Prefab/Explosion.prefab");
-        }
-#endif
+        OnlineNetworkPrefabBinder.AutoAssign(ref playerPrefab, ref bombPrefab, ref explosionPrefab);
     }
 
-    private void SpawnExistingPlayers()
+    private void SpawnActivePlayersFromGameScene()
     {
         if (runner == null || !runner.IsServer)
         {
             return;
         }
 
-        Vector3[] spawnPoints = BuildSpawnPoints();
-        List<PlayerRef> activePlayers = runner.ActivePlayers
-            .OrderBy(player => player.PlayerId)
-            .ToList();
-
-        for (int index = 0; index < activePlayers.Count && index < spawnPoints.Length; index++)
+        OnlineGameSpawner spawner = FindAnyObjectByType<OnlineGameSpawner>(FindObjectsInactive.Include);
+        if (spawner == null)
         {
-            SpawnPlayer(activePlayers[index], spawnPoints[index], index);
-        }
-    }
-
-    private void SpawnPlayer(PlayerRef playerRef, Vector3 spawnPoint, int index)
-    {
-        if (runner == null || playerPrefab == null)
-        {
+            statusMessage = "Game spawner is missing";
+            Debug.LogError("Cannot spawn players: OnlineGameSpawner was not found in the game scene.");
             return;
         }
 
-        NetworkObject playerObject = runner.Spawn(playerPrefab, spawnPoint, Quaternion.identity, playerRef);
-        if (playerObject == null)
-        {
-            return;
-        }
-
-        runner.SetPlayerObject(playerRef, playerObject);
-
-        OnlinePlayerController controller = playerObject.GetComponent<OnlinePlayerController>();
-        if (controller != null)
-        {
-            controller.name = $"Player{index + 1}";
-        }
+        spawner.SpawnActivePlayers(runner);
     }
 
-    private Vector3[] BuildSpawnPoints()
-    {
-        ThemeManager themeManager = ThemeManager.Instance;
-        if (themeManager != null && themeManager.IsLevelReady)
-        {
-            return themeManager.GetCornerSpawnPoints();
-        }
-
-        return new[]
-        {
-            new Vector3(-2f, 0.5f, -2f),
-            new Vector3(2f, 0.5f, -2f),
-            new Vector3(-2f, 0.5f, 2f),
-            new Vector3(2f, 0.5f, 2f)
-        };
-    }
-
-    public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
-    {
-        if (runner == null || !runner.IsServer || !gameSceneLoaded)
-        {
-            return;
-        }
-
-        Vector3[] spawnPoints = BuildSpawnPoints();
-        List<PlayerRef> activePlayers = runner.ActivePlayers
-            .OrderBy(playerRef => playerRef.PlayerId)
-            .ToList();
-
-        int spawnIndex = activePlayers.IndexOf(player);
-        if (spawnIndex < 0 || spawnIndex >= spawnPoints.Length)
-        {
-            return;
-        }
-
-        SpawnPlayer(player, spawnPoints[spawnIndex], spawnIndex);
-    }
+    public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) { }
 
     public void OnSceneLoadStart(NetworkRunner runner)
     {
-        if (runner == null || !runner.IsServer || !isLoadingGame)
+        if (runner == null || string.IsNullOrWhiteSpace(gameSceneName))
         {
             return;
         }
 
         gameSceneLoaded = false;
+
+        if (matchSpawnCoroutine != null)
+        {
+            StopCoroutine(matchSpawnCoroutine);
+            matchSpawnCoroutine = null;
+        }
+
+        if (isLoadingGame)
+        {
+            OnlineSessionState.IsOnlineSession = true;
+        }
+
         statusMessage = $"Loading {gameSceneName}...";
     }
 
     public void OnSceneLoadDone(NetworkRunner runner)
     {
-        if (runner == null || !runner.IsServer || !isLoadingGame)
+        if (runner == null || !OnlineScenePresentation.IsGameSceneLoaded(gameSceneName))
         {
             return;
         }
 
-        StartCoroutine(SpawnPlayersAfterSceneReady());
+        MatchGridState.Reset();
+        inputReader.ResetBombState();
+        OnlineScenePresentation.FinalizeGameSceneTransition(gameSceneName, lobbySceneName);
+
+        if (runner.IsServer && isLoadingGame && matchSpawnCoroutine == null)
+        {
+            matchSpawnCoroutine = StartCoroutine(SpawnPlayersAfterSceneReady());
+        }
+        else if (!runner.IsServer)
+        {
+            EnsureMatchResultPopup();
+            gameSceneLoaded = true;
+            statusMessage = "Match started";
+        }
     }
 
     private IEnumerator SpawnPlayersAfterSceneReady()
@@ -1944,57 +1866,27 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             yield return null;
         }
 
-        SpawnExistingPlayers();
+        OnlineScenePresentation.FinalizeGameSceneTransition(gameSceneName, lobbySceneName);
+        SpawnActivePlayersFromGameScene();
+        EnsureMatchResultPopup();
         gameSceneLoaded = true;
         isLoadingGame = false;
         statusMessage = "Match started";
+        matchSpawnCoroutine = null;
+    }
+
+    private void EnsureMatchResultPopup()
+    {
+        OnlineMatchResultPopup popup = FindAnyObjectByType<OnlineMatchResultPopup>(FindObjectsInactive.Include);
+        if (popup == null)
+        {
+            Debug.LogWarning("[Match Result] OnlineMatchResultPopup was not found in GameScene.");
+        }
     }
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
-        OnlinePlayerInput playerInput = new OnlinePlayerInput
-        {
-            Move = ReadMoveInput(),
-            PlaceBomb = ReadBombInput()
-        };
-
-        input.Set(playerInput);
-    }
-
-    private Vector2 ReadMoveInput()
-    {
-        if (Gamepad.current != null)
-        {
-            return Gamepad.current.leftStick.ReadValue();
-        }
-
-        if (Keyboard.current != null)
-        {
-            float h = 0f;
-            float v = 0f;
-            if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) h -= 1f;
-            if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) h += 1f;
-            if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) v += 1f;
-            if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) v -= 1f;
-            return new Vector2(h, v);
-        }
-
-        return Vector2.zero;
-    }
-
-    private bool ReadBombInput()
-    {
-        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
-        {
-            return true;
-        }
-
-        if (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame)
-        {
-            return true;
-        }
-
-        return false;
+        inputReader.SetInput(input);
     }
 
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }

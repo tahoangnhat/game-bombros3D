@@ -43,7 +43,6 @@ public class ThemeManager : MonoBehaviour
     [SerializeField] private GameObject[] playerPrefabs = new GameObject[4];
     [SerializeField] private Vector3 playerSpawnOffset = new Vector3(0f, 0.5f, 0f);
     [SerializeField] private bool spawnPlayersOnThemeApply = true;
-    
     private int currentThemeIndex = 0;
 
     public bool IsLevelReady { get; private set; }
@@ -96,10 +95,22 @@ public class ThemeManager : MonoBehaviour
     private void ApplyTheme(SeasonTheme theme)
     {
         IsLevelReady = false;
+        MatchGridState.Reset();
 
         if (theme.levelData == null)
         {
             Debug.LogError($"Theme '{theme.seasonName}' has no LevelData assigned");
+            return;
+        }
+
+        theme.levelData.Initialize();
+        int expectedCells = theme.levelData.width * theme.levelData.height;
+        if (theme.levelData.layout == null || theme.levelData.layout.Length != expectedCells)
+        {
+            Debug.LogError(
+                $"Theme '{theme.seasonName}' has invalid LevelData layout " +
+                $"({theme.levelData.layout?.Length ?? 0} cells, expected {expectedCells}). " +
+                "Use Assets > Create Level Data > Regenerate All Season Levels in the editor.");
             return;
         }
 
@@ -134,7 +145,7 @@ public class ThemeManager : MonoBehaviour
         if (levelData == null) return;
         int w = levelData.width;
         int h = levelData.height;
-        int countEmpty = 0, countBorder = 0, countMiddle = 0, countDestruct = 0;
+        int countEmpty = 0, countBorder = 0, countMiddle = 0, countDestruct = 0, countPlayerSpawn = 0;
         System.Text.StringBuilder sbDestruct = new System.Text.StringBuilder();
 
         for (int z = 0; z < h; z++)
@@ -147,6 +158,7 @@ public class ThemeManager : MonoBehaviour
                     case CellType.Empty: countEmpty++; break;
                     case CellType.BorderWall: countBorder++; break;
                     case CellType.MiddleWall: countMiddle++; break;
+                    case CellType.PlayerSpawn: countPlayerSpawn++; break;
                     case CellType.DestructibleWall:
                         countDestruct++;
                         if (sbDestruct.Length == 0) sbDestruct.Append("Destructibles: ");
@@ -159,7 +171,7 @@ public class ThemeManager : MonoBehaviour
             }
         }
 
-        Debug.Log($"LevelData summary: {w}x{h} Empty:{countEmpty} Border:{countBorder} Middle:{countMiddle} Destructible:{countDestruct}");
+        Debug.Log($"LevelData summary: {w}x{h} Empty:{countEmpty} Border:{countBorder} Middle:{countMiddle} Destructible:{countDestruct} PlayerSpawn:{countPlayerSpawn}");
         if (sbDestruct.Length > 0) Debug.Log(sbDestruct.ToString());
     }
 
@@ -198,7 +210,7 @@ public class ThemeManager : MonoBehaviour
                     // Spawn sàn trước
                     SpawnPrefab(theme.floorPrefabs, basePos, floorOffset);
                     // Spawn vật phá lên trên sàn
-                    SpawnDestructible(theme.destructibleWallPrefabs, basePos, destructibleOffset);
+                    SpawnDestructible(theme.destructibleWallPrefabs, basePos, destructibleOffset, x, z);
                     break;
 
                 case CellType.Empty:
@@ -220,7 +232,12 @@ public class ThemeManager : MonoBehaviour
             return;
         }
 
-        Vector3[] spawnPoints = GetCornerSpawnPoints();
+        Vector3[] spawnPoints = GetRandomPlayerSpawnPoints(theme.levelData, playerPrefabs.Length);
+        if (spawnPoints.Length == 0)
+        {
+            Debug.LogWarning("No PlayerSpawn cells found for local player spawning.");
+            return;
+        }
 
         for (int i = 0; i < spawnPoints.Length; i++)
         {
@@ -235,15 +252,46 @@ public class ThemeManager : MonoBehaviour
         }
     }
 
-    public Vector3[] GetCornerSpawnPoints()
+    public Vector3[] GetPlayerSpawnPoints(LevelData sourceLevelData = null)
     {
-        return new Vector3[]
+        LevelData source = sourceLevelData != null ? sourceLevelData : GetCurrentTheme()?.levelData;
+        if (source == null)
         {
-            GetWorldPosition(1, 1) + playerSpawnOffset,
-            GetWorldPosition(width - 2, 1) + playerSpawnOffset,
-            GetWorldPosition(1, height - 2) + playerSpawnOffset,
-            GetWorldPosition(width - 2, height - 2) + playerSpawnOffset
-        };
+            return new Vector3[0];
+        }
+
+        System.Collections.Generic.List<Vector3> points = new System.Collections.Generic.List<Vector3>();
+        for (int z = 0; z < source.height; z++)
+        {
+            for (int x = 0; x < source.width; x++)
+            {
+                if (source.GetCellType(x, z) == CellType.PlayerSpawn)
+                {
+                    points.Add(GetWorldPosition(x, z) + playerSpawnOffset);
+                }
+            }
+        }
+
+        return points.ToArray();
+    }
+
+    private Vector3[] GetRandomPlayerSpawnPoints(LevelData sourceLevelData, int maxCount)
+    {
+        Vector3[] spawnPoints = GetPlayerSpawnPoints(sourceLevelData);
+        for (int i = 0; i < spawnPoints.Length; i++)
+        {
+            int swapIndex = Random.Range(i, spawnPoints.Length);
+            (spawnPoints[i], spawnPoints[swapIndex]) = (spawnPoints[swapIndex], spawnPoints[i]);
+        }
+
+        if (maxCount <= 0 || spawnPoints.Length <= maxCount)
+        {
+            return spawnPoints;
+        }
+
+        Vector3[] limited = new Vector3[maxCount];
+        System.Array.Copy(spawnPoints, limited, maxCount);
+        return limited;
     }
 
     private void SpawnPrefab(PrefabOption[] prefabOptions, Vector3 basePos, Vector3 offset)
@@ -261,7 +309,7 @@ public class ThemeManager : MonoBehaviour
         AlignToGridAndFloor(go, new Vector3(basePos.x + appliedOffset.x, 0f, basePos.z + appliedOffset.z), basePos.y + appliedOffset.y);
     }
 
-    private void SpawnDestructible(PrefabOption[] prefabOptions, Vector3 basePos, Vector3 offset)
+    private void SpawnDestructible(PrefabOption[] prefabOptions, Vector3 basePos, Vector3 offset, int cellX, int cellZ)
     {
         if (prefabOptions == null || prefabOptions.Length == 0) return;
 
@@ -278,6 +326,14 @@ public class ThemeManager : MonoBehaviour
 
         // Align to grid center and floor after rotation
         AlignToGridAndFloor(go, new Vector3(basePos.x + appliedOffset.x, 0f, basePos.z + appliedOffset.z), basePos.y + appliedOffset.y);
+
+        DestructibleWall destructible = go.GetComponent<DestructibleWall>();
+        if (destructible == null)
+        {
+            destructible = go.AddComponent<DestructibleWall>();
+        }
+
+        destructible.Initialize(cellX, cellZ);
     }
 
     // Align object's renderer bounds so its center XZ matches targetCenterXZ and its lowest Y sits at targetFloorY
