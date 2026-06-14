@@ -48,6 +48,7 @@ public class OnlineMatchResultPopup : MonoBehaviour
     private bool localLoseShown;
     private bool localWinShown;
     private bool drawShown;
+    private bool spectatorEndShown;
     private Coroutine activeAnimationRoutine;
 
     private void Awake()
@@ -84,6 +85,10 @@ public class OnlineMatchResultPopup : MonoBehaviour
             CanvasGroup cg = popupPanel.GetComponent<CanvasGroup>();
             if (cg != null) cg.alpha = 0f;
         }
+        spectatorEndShown = false;
+        localLoseShown = false;
+        localWinShown = false;
+        drawShown = false;
     }
 
     public void HidePopup()
@@ -98,8 +103,18 @@ public class OnlineMatchResultPopup : MonoBehaviour
 
         if (lobbyManager != null)
         {
-            lobbyManager.LeaveSessionAndGoToMainMenu(mainMenuSceneName);
-            return;
+            if (lobbyManager.IsHostLobby)
+            {
+                // Host đưa tất cả mọi người quay lại sảnh chờ cùng nhau thông qua NetworkRunner
+                lobbyManager.ReturnToLobby();
+                return;
+            }
+            else
+            {
+                // Client thoát khỏi session phòng hiện tại và quay về màn hình chính
+                lobbyManager.LeaveSessionAndGoToMainMenu(mainMenuSceneName);
+                return;
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(mainMenuSceneName))
@@ -157,6 +172,7 @@ public class OnlineMatchResultPopup : MonoBehaviour
             }
         }
 
+        // 1. Người chơi chết (You Lose)
         if (localPlayer != null && localPlayer.IsEliminated && !localLoseShown)
         {
             localLoseShown = true;
@@ -173,6 +189,7 @@ public class OnlineMatchResultPopup : MonoBehaviour
             return;
         }
 
+        // 2. Người chơi thắng (You Win)
         if (aliveCount == 1 && alivePlayer != null && alivePlayer.Object.HasInputAuthority && !localWinShown)
         {
             localWinShown = true;
@@ -184,14 +201,28 @@ public class OnlineMatchResultPopup : MonoBehaviour
             return;
         }
 
+        // 3. Trận đấu hòa (Tie)
         if (aliveCount == 0 && !drawShown)
         {
             drawShown = true;
+            spectatorEndShown = true; // Trận đấu kết thúc hoàn toàn
             ShowPopup(
                 "Tie",
                 "No survivors left",
                 showContinue: false,
                 MatchResultType.Draw);
+            return;
+        }
+
+        // 4. Nếu người chơi đang theo dõi (Spectating) và có người chiến thắng cuối cùng
+        if (localLoseShown && aliveCount == 1 && !spectatorEndShown)
+        {
+            spectatorEndShown = true;
+            ShowPopup(
+                "Match Finished",
+                "Winner has been decided!",
+                showContinue: false, // Trận đấu kết thúc, không xem tiếp nữa
+                MatchResultType.Draw); // Trực quan trung tính
         }
     }
 
@@ -254,6 +285,36 @@ public class OnlineMatchResultPopup : MonoBehaviour
         if (continueButton != null)
         {
             continueButton.gameObject.SetActive(showContinue);
+            TMP_Text cButtonText = continueButton.GetComponentInChildren<TMP_Text>();
+            if (cButtonText != null)
+            {
+                cButtonText.text = "Watch";
+            }
+            else
+            {
+                Text cLegacyText = continueButton.GetComponentInChildren<Text>();
+                if (cLegacyText != null)
+                {
+                    cLegacyText.text = "Watch";
+                }
+            }
+        }
+
+        if (quitButton != null)
+        {
+            TMP_Text buttonText = quitButton.GetComponentInChildren<TMP_Text>();
+            if (buttonText != null)
+            {
+                buttonText.text = (lobbyManager != null && lobbyManager.IsHostLobby) ? "Return" : "Exit";
+            }
+            else
+            {
+                Text legacyText = quitButton.GetComponentInChildren<Text>();
+                if (legacyText != null)
+                {
+                    legacyText.text = (lobbyManager != null && lobbyManager.IsHostLobby) ? "Return" : "Exit";
+                }
+            }
         }
 
         popupPanel.SetActive(true);

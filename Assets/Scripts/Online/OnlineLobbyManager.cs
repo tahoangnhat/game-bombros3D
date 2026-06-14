@@ -133,6 +133,28 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         return auth.PlayerId;
     }
 
+    private void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name == lobbySceneName)
+        {
+            // Tự động reset trạng thái sẵn sàng của Client khi quay trở lại sảnh
+            if (currentLobby != null && !isHost)
+            {
+                _ = SetLocalReadyAsync(false);
+            }
+        }
+    }
+
     private async void Awake()
     {
         if (Instance != null && Instance != this)
@@ -1069,6 +1091,26 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         // Multiple peer mode (ParrelSync / Fusion PeerMode.Multiple) does not support LocalPhysicsMode.Physics3D.
         await runner.LoadScene(gameSceneName, LoadSceneMode.Single, LocalPhysicsMode.None, true);
+    }
+
+    public void ReturnToLobby()
+    {
+        _ = ReturnToLobbyAsync();
+    }
+
+    private async Task ReturnToLobbyAsync()
+    {
+        if (!isHost || runner == null || !runner.IsRunning)
+        {
+            return;
+        }
+
+        OnlineSessionState.IsOnlineSession = false;
+        isLoadingGame = false;
+        gameSceneLoaded = false;
+        statusMessage = $"Returning to {lobbySceneName}...";
+
+        await runner.LoadScene(lobbySceneName, LoadSceneMode.Single, LocalPhysicsMode.None, true);
     }
 
     private async Task LeaveSessionAsync()
