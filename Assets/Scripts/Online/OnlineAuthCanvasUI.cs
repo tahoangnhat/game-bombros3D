@@ -70,6 +70,13 @@ public class OnlineAuthCanvasUI : MonoBehaviour
     [SerializeField] private TMP_Text statusText;
     [SerializeField] private TMP_Text resendOtpButtonText;
 
+    [Header("Error Notification Modal (Optional)")]
+    [SerializeField] private GameObject errorPopupPanel;
+    [SerializeField] private TMP_Text errorPopupText;
+    [SerializeField] private Button errorPopupCloseButton;
+
+    private string lastStatusMessage;
+
     [Header("Refresh")]
     [SerializeField] private float refreshInterval = 0.2f;
 
@@ -88,6 +95,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
     {
         ResolveSceneMode();
         BindEvents();
+        HideErrorPopup();
     }
 
     private void Start()
@@ -183,6 +191,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
         if (goToLoginButtonFromVerify != null) goToLoginButtonFromVerify.onClick.AddListener(() => LoadScene(loginSceneName));
         if (resetPasswordEyeButton != null) resetPasswordEyeButton.onClick.AddListener(OnResetPasswordEyeClicked);
         if (resetConfirmPasswordEyeButton != null) resetConfirmPasswordEyeButton.onClick.AddListener(OnResetConfirmPasswordEyeClicked);
+        if (errorPopupCloseButton != null) errorPopupCloseButton.onClick.AddListener(HideErrorPopup);
     }
 
     private void UnbindEvents()
@@ -206,6 +215,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
         if (goToLoginButtonFromVerify != null) goToLoginButtonFromVerify.onClick.RemoveAllListeners();
         if (resetPasswordEyeButton != null) resetPasswordEyeButton.onClick.RemoveListener(OnResetPasswordEyeClicked);
         if (resetConfirmPasswordEyeButton != null) resetConfirmPasswordEyeButton.onClick.RemoveListener(OnResetConfirmPasswordEyeClicked);
+        if (errorPopupCloseButton != null) errorPopupCloseButton.onClick.RemoveListener(HideErrorPopup);
     }
 
     private void RefreshUI()
@@ -219,9 +229,38 @@ public class OnlineAuthCanvasUI : MonoBehaviour
             root.SetActive(true);
         }
 
+        string currentStatus = GetStatusMessage();
         if (statusText != null)
         {
-            statusText.text = GetStatusMessage();
+            statusText.text = currentStatus;
+            
+            // Đổi màu chữ động theo trạng thái để người chơi dễ nhận diện
+            if (IsErrorStatus(currentStatus))
+            {
+                statusText.color = new Color(0.9f, 0.2f, 0.2f); // Màu đỏ khi lỗi
+            }
+            else if (currentStatus.Contains("successful") || currentStatus.Contains("Logged in") || currentStatus.Contains("Registered"))
+            {
+                statusText.color = new Color(0.2f, 0.8f, 0.2f); // Màu xanh lá khi thành công
+            }
+            else if (currentStatus.Contains("...") || currentStatus.Contains("Verifying") || currentStatus.Contains("Checking"))
+            {
+                statusText.color = new Color(1f, 0.6f, 0f); // Màu cam khi đang tải
+            }
+            else
+            {
+                statusText.color = Color.white; // Mặc định
+            }
+        }
+
+        // Tự động mở Popup thông báo lỗi nếu có trạng thái lỗi mới
+        if (currentStatus != lastStatusMessage)
+        {
+            if (IsErrorStatus(currentStatus) && currentStatus != "Ready" && currentStatus != "Waiting for SpringAuthClient...")
+            {
+                ShowErrorPopup(currentStatus);
+            }
+            lastStatusMessage = currentStatus;
         }
 
         bool canAuth = GetCanAuthenticate();
@@ -585,5 +624,94 @@ public class OnlineAuthCanvasUI : MonoBehaviour
         }
 
         return string.Empty;
+    }
+    private bool IsErrorStatus(string status)
+    {
+        if (string.IsNullOrEmpty(status)) return false;
+
+        // Bỏ qua các trạng thái bình thường, đang tải hoặc thành công
+        if (status == "Ready" || 
+            status == "Waiting for SpringAuthClient..." || 
+            status == "Logged out" ||
+            status.Contains("...") || // "Signing in...", "Registering...", "Sending OTP...", "Verifying OTP..."
+            status.Contains("successful") || 
+            status.Contains("Logged in") || 
+            status.Contains("Registered") || 
+            status.Contains("sent to your email") ||
+            status.Contains("verified"))
+        {
+            return false;
+        }
+
+        // Tất cả các chuỗi thông báo khác đều được coi là lỗi
+        return true;
+    }
+
+    private void ShowErrorPopup(string message)
+    {
+        string friendlyMessage = message;
+
+        // 1. Phát hiện lỗi đăng nhập sai tài khoản/mật khẩu
+        if (message.Contains("Bad credentials"))
+        {
+            friendlyMessage = "Login Failed\n\nPlease Check Password";
+        }
+        // 2. Phát hiện lỗi để trống thông tin
+        else if (message.Contains("cannot be empty"))
+        {
+            friendlyMessage = "Login Failed\n\nFields cannot be empty";
+        }
+        // 3. Phát hiện lỗi mất kết nối máy chủ
+        else if (message.Contains("refused") || message.Contains("Cannot connect") || message.Contains("timeout"))
+        {
+            friendlyMessage = "Connection Failed\n\nCannot connect to server";
+        }
+        // 4. Nếu là chuỗi JSON từ máy chủ, tự động tách trường "message" để hiển thị đẹp mắt
+        else if (message.StartsWith("{") && message.EndsWith("}"))
+        {
+            try
+            {
+                int msgIndex = message.IndexOf("\"message\":\"");
+                if (msgIndex != -1)
+                {
+                    int start = msgIndex + 11;
+                    int end = message.IndexOf("\"", start);
+                    if (end != -1)
+                    {
+                        string extractedMsg = message.Substring(start, end - start);
+                        if (extractedMsg == "Bad credentials")
+                        {
+                            friendlyMessage = "Login Failed\n\nPlease Check Password";
+                        }
+                        else
+                        {
+                            friendlyMessage = extractedMsg;
+                        }
+                    }
+                }
+            }
+            catch 
+            {
+                // Fallback nếu parse lỗi
+                friendlyMessage = "An unexpected error occurred";
+            }
+        }
+
+        if (errorPopupText != null)
+        {
+            errorPopupText.text = friendlyMessage;
+        }
+        if (errorPopupPanel != null)
+        {
+            errorPopupPanel.SetActive(true);
+        }
+    }
+
+    public void HideErrorPopup()
+    {
+        if (errorPopupPanel != null)
+        {
+            errorPopupPanel.SetActive(false);
+        }
     }
 }
