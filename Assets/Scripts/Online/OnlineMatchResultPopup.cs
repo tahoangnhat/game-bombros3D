@@ -1,3 +1,4 @@
+using System.Collections;
 using TMPro;
 using Unity.Services.Lobbies.Models;
 using UnityEngine;
@@ -6,7 +7,9 @@ using UnityEngine.UI;
 
 public class OnlineMatchResultPopup : MonoBehaviour
 {
-    [Header("Popup References")]
+    public enum MatchResultType { Win, Lose, Draw }
+
+    [Header("Popup References (Original)")]
     [SerializeField] private GameObject popupPanel;
     [SerializeField] private TMP_Text titleText;
     [SerializeField] private TMP_Text messageText;
@@ -19,17 +22,38 @@ public class OnlineMatchResultPopup : MonoBehaviour
     [Header("Refresh")]
     [SerializeField] private float checkInterval = 0.2f;
 
+    [Header("Visual Customizations (Optional)")]
+    [SerializeField] private Image panelBgImage;         
+    [SerializeField] private Image statusIconImage;       
+    [SerializeField] private Sprite victoryIcon;          
+    [SerializeField] private Sprite defeatIcon;           
+    [SerializeField] private Sprite drawIcon;             
+
+    [Header("Style Colors")]
+    [SerializeField] private Color victoryPanelColor = new Color(0.12f, 0.22f, 0.14f, 0.95f);
+    [SerializeField] private Color defeatPanelColor = new Color(0.25f, 0.12f, 0.12f, 0.95f);
+    [SerializeField] private Color drawPanelColor = new Color(0.16f, 0.16f, 0.20f, 0.95f);
+
+    [Header("Text Gradients")]
+    [SerializeField] private TMP_ColorGradient victoryTextGradient;
+    [SerializeField] private TMP_ColorGradient defeatTextGradient;
+    [SerializeField] private TMP_ColorGradient drawTextGradient;
+
+    [Header("Animation")]
+    [SerializeField] private float animationDuration = 0.35f;
+
     private OnlineLobbyManager lobbyManager;
     private float checkTimer;
     private int observedPlayerCount;
     private bool localLoseShown;
     private bool localWinShown;
     private bool drawShown;
+    private Coroutine activeAnimationRoutine;
 
     private void Awake()
     {
         BindButtons();
-        HidePopup();
+        HidePopupImmediately();
     }
 
     private void OnDestroy()
@@ -51,12 +75,21 @@ public class OnlineMatchResultPopup : MonoBehaviour
         CheckMatchState();
     }
 
-    public void HidePopup()
+    private void HidePopupImmediately()
     {
         if (popupPanel != null)
         {
             popupPanel.SetActive(false);
+            popupPanel.transform.localScale = Vector3.zero;
+            CanvasGroup cg = popupPanel.GetComponent<CanvasGroup>();
+            if (cg != null) cg.alpha = 0f;
         }
+    }
+
+    public void HidePopup()
+    {
+        if (activeAnimationRoutine != null) StopCoroutine(activeAnimationRoutine);
+        activeAnimationRoutine = StartCoroutine(AnimateClose());
     }
 
     public void QuitMatch()
@@ -128,9 +161,10 @@ public class OnlineMatchResultPopup : MonoBehaviour
         {
             localLoseShown = true;
             ShowPopup(
-                "Bạn đã thua",
-                "Bạn có thể xem tiếp trận đấu hoặc thoát về menu.",
-                showContinue: true);
+                "You Lose",
+                "Continute Watching or Exit",
+                showContinue: true,
+                MatchResultType.Lose);
             return;
         }
 
@@ -143,9 +177,10 @@ public class OnlineMatchResultPopup : MonoBehaviour
         {
             localWinShown = true;
             ShowPopup(
-                "Bạn thắng",
-                "Bạn là người sống cuối cùng.",
-                showContinue: false);
+                "You Win",
+                "You are the Winner",
+                showContinue: false,
+                MatchResultType.Win);
             return;
         }
 
@@ -153,9 +188,10 @@ public class OnlineMatchResultPopup : MonoBehaviour
         {
             drawShown = true;
             ShowPopup(
-                "Hòa",
-                "Không còn người chơi nào sống sót.",
-                showContinue: false);
+                "Tie",
+                "No survivors left",
+                showContinue: false,
+                MatchResultType.Draw);
         }
     }
 
@@ -165,7 +201,7 @@ public class OnlineMatchResultPopup : MonoBehaviour
         return lobby != null && lobby.Players != null ? lobby.Players.Count : 0;
     }
 
-    private void ShowPopup(string title, string message, bool showContinue)
+    private void ShowPopup(string title, string message, bool showContinue, MatchResultType resultType)
     {
         if (popupPanel == null)
         {
@@ -176,11 +212,43 @@ public class OnlineMatchResultPopup : MonoBehaviour
         if (titleText != null)
         {
             titleText.text = title;
+            titleText.enableVertexGradient = true;
+            if (resultType == MatchResultType.Win && victoryTextGradient != null)
+                titleText.colorGradientPreset = victoryTextGradient;
+            else if (resultType == MatchResultType.Lose && defeatTextGradient != null)
+                titleText.colorGradientPreset = defeatTextGradient;
+            else if (resultType == MatchResultType.Draw && drawTextGradient != null)
+                titleText.colorGradientPreset = drawTextGradient;
         }
 
         if (messageText != null)
         {
             messageText.text = message;
+        }
+
+        if (panelBgImage != null)
+        {
+            if (resultType == MatchResultType.Win) panelBgImage.color = victoryPanelColor;
+            else if (resultType == MatchResultType.Lose) panelBgImage.color = defeatPanelColor;
+            else panelBgImage.color = drawPanelColor;
+        }
+
+        if (statusIconImage != null)
+        {
+            Sprite targetIcon = null;
+            if (resultType == MatchResultType.Win) targetIcon = victoryIcon;
+            else if (resultType == MatchResultType.Lose) targetIcon = defeatIcon;
+            else targetIcon = drawIcon;
+
+            if (targetIcon != null)
+            {
+                statusIconImage.sprite = targetIcon;
+                statusIconImage.gameObject.SetActive(true);
+            }
+            else
+            {
+                statusIconImage.gameObject.SetActive(false);
+            }
         }
 
         if (continueButton != null)
@@ -189,6 +257,57 @@ public class OnlineMatchResultPopup : MonoBehaviour
         }
 
         popupPanel.SetActive(true);
+        if (activeAnimationRoutine != null) StopCoroutine(activeAnimationRoutine);
+        activeAnimationRoutine = StartCoroutine(AnimateOpen());
+    }
+
+    private IEnumerator AnimateOpen()
+    {
+        float elapsed = 0f;
+        CanvasGroup cg = popupPanel.GetComponent<CanvasGroup>();
+        
+        popupPanel.transform.localScale = new Vector3(0.4f, 0.4f, 1f);
+        if (cg != null) cg.alpha = 0f;
+
+        while (elapsed < animationDuration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float percent = Mathf.Clamp01(elapsed / animationDuration);
+            
+            float t = percent;
+            float scaleVal = 1f + Mathf.Sin(t * Mathf.PI * 1.5f) * 0.15f * (1f - t);
+            if (percent >= 0.99f) scaleVal = 1f;
+
+            popupPanel.transform.localScale = new Vector3(scaleVal, scaleVal, 1f);
+            if (cg != null) cg.alpha = percent;
+
+            yield return null;
+        }
+
+        popupPanel.transform.localScale = Vector3.one;
+        if (cg != null) cg.alpha = 1f;
+    }
+
+    private IEnumerator AnimateClose()
+    {
+        float elapsed = 0f;
+        float duration = animationDuration * 0.6f;
+        CanvasGroup cg = popupPanel.GetComponent<CanvasGroup>();
+        Vector3 startScale = popupPanel.transform.localScale;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float percent = Mathf.Clamp01(elapsed / duration);
+            float inversePercent = 1f - percent;
+
+            popupPanel.transform.localScale = Vector3.Lerp(startScale, new Vector3(0.5f, 0.5f, 1f), percent);
+            if (cg != null) cg.alpha = inversePercent;
+
+            yield return null;
+        }
+
+        popupPanel.SetActive(false);
     }
 
     private void BindButtons()

@@ -158,7 +158,7 @@ public class OnlineLobbyCanvasUI : MonoBehaviour
 
         if (readyButtonText != null)
         {
-            readyButtonText.text = hasManager && lobbyManager.IsLocalPlayerReady() ? "Ready" : "Ready";
+            readyButtonText.text = hasManager && lobbyManager.IsLocalPlayerReady() ? "Cancel" : "Ready";
         }
 
         if (startButtonText != null)
