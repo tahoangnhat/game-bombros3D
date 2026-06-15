@@ -258,7 +258,24 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         string name = GetPlayerDisplayName(player);
-        return $"Slot {displaySlot}: {name}";
+        bool isPlayerHost = player.Id == currentLobby.HostId;
+        bool isPlayerReady = IsPlayerReady(player);
+
+        string status = "";
+        if (isPlayerHost)
+        {
+            status = "[Host]";
+        }
+        else if (isPlayerReady)
+        {
+            status = "[Ready]";
+        }
+        else
+        {
+            status = "[Not Ready]";
+        }
+
+        return $"Slot {displaySlot}: {name}\n{status}";
     }
 
     public void CreateLobbyAndHost()
