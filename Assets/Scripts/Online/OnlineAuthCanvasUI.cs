@@ -339,6 +339,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
 
     private void OnLoginClicked()
     {
+        lastStatusMessage = string.Empty;
         string identifier = ReadField(loginIdentifierField);
         string password = ReadField(loginPasswordField);
 
@@ -353,6 +354,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
 
     private void OnRegisterClicked()
     {
+        lastStatusMessage = string.Empty;
         string username = ReadField(registerUsernameField);
         string email = ReadField(registerEmailField);
         string password = ReadField(registerPasswordField);
@@ -369,6 +371,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
 
     private void OnSendOtpClicked()
     {
+        lastStatusMessage = string.Empty;
         string email = ReadField(forgotEmailField);
         pendingVerifyRedirect = true;
         pendingResetRedirect = false;
@@ -434,6 +437,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
 
     private void OnVerifyResetClicked()
     {
+        lastStatusMessage = string.Empty;
         Debug.Log("OnVerifyResetClicked called");
         string email = ReadField(verifyEmailField, forgotEmailField, registerEmailField);
         if (string.IsNullOrWhiteSpace(email) && authClient != null)
@@ -458,6 +462,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
 
     private void OnResendOtpClicked()
     {
+        lastStatusMessage = string.Empty;
         if (authClient != null)
         {
             authClient.ResendPasswordResetOtp();
@@ -650,6 +655,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
     private void ShowErrorPopup(string message)
     {
         string friendlyMessage = message;
+        string actionPrefix = (sceneMode == AuthSceneMode.Register) ? "Registration" : "Login";
 
         // 1. Phát hiện lỗi đăng nhập sai tài khoản/mật khẩu
         if (message.Contains("Bad credentials"))
@@ -659,14 +665,19 @@ public class OnlineAuthCanvasUI : MonoBehaviour
         // 2. Phát hiện lỗi để trống thông tin
         else if (message.Contains("cannot be empty"))
         {
-            friendlyMessage = "Login Failed\n\nFields cannot be empty";
+            friendlyMessage = $"{actionPrefix} Failed\n\nFields cannot be empty";
         }
-        // 3. Phát hiện lỗi mất kết nối máy chủ
+        // 3. Phát hiện lỗi mật khẩu xác nhận không khớp
+        else if (message.Contains("Confirm password does not match") || message.Contains("confirmPassword"))
+        {
+            friendlyMessage = "Registration Failed\n\nPasswords do not match";
+        }
+        // 4. Phát hiện lỗi mất kết nối máy chủ
         else if (message.Contains("refused") || message.Contains("Cannot connect") || message.Contains("timeout"))
         {
             friendlyMessage = "Connection Failed\n\nCannot connect to server";
         }
-        // 4. Nếu là chuỗi JSON từ máy chủ, tự động tách trường "message" để hiển thị đẹp mắt
+        // 5. Nếu là chuỗi JSON từ máy chủ, tự động tách trường "message" để hiển thị đẹp mắt
         else if (message.StartsWith("{") && message.EndsWith("}"))
         {
             try
