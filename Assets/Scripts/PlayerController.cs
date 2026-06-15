@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
@@ -26,6 +27,7 @@ public class PlayerController : MonoBehaviour
     Vector3 inputDirection;
     bool isGrounded;
     float lastBombTime = -10f;
+    private List<Bomb> activeBombs = new List<Bomb>();
 
     void Awake()
     {
@@ -103,6 +105,13 @@ public class PlayerController : MonoBehaviour
     {
         if (bombPrefab == null) return;
 
+        // Clean up exploded bombs (null references)
+        activeBombs.RemoveAll(bomb => bomb == null);
+        if (activeBombs.Count >= 2)
+        {
+            return;
+        }
+
         GridUtility.TryWorldToCell(transform.position, out int cellX, out int cellZ);
         if (HasBombAtCell(cellX, cellZ))
         {
@@ -117,6 +126,7 @@ public class PlayerController : MonoBehaviour
         if (bomb != null)
         {
             bomb.SetOwnerCollider(GetComponent<Collider>());
+            activeBombs.Add(bomb);
         }
     }
 

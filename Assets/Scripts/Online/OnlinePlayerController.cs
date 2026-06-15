@@ -1,5 +1,6 @@
 using Fusion;
 using UnityEngine;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody))]
 [RequireComponent(typeof(NetworkObject))]
@@ -29,6 +30,7 @@ public class OnlinePlayerController : NetworkBehaviour
     private Vector3 inputDirection;
     private bool isGrounded;
     private float lastBombTime = -10f;
+    private List<NetworkObject> activeBombs = new List<NetworkObject>();
 
     private void Awake()
     {
@@ -107,6 +109,13 @@ public class OnlinePlayerController : NetworkBehaviour
             return;
         }
 
+        // Clean up despawned / invalid bombs
+        activeBombs.RemoveAll(bomb => bomb == null || !bomb.IsValid);
+        if (activeBombs.Count >= 2)
+        {
+            return;
+        }
+
         NetworkObject resolvedBombPrefab = bombPrefab;
         if (resolvedBombPrefab == null && OnlineLobbyManager.Instance != null)
         {
@@ -127,7 +136,11 @@ public class OnlinePlayerController : NetworkBehaviour
         Vector3 spawnPos = GridUtility.GetCellCenter(cellX, cellZ);
         spawnPos.y = transform.position.y;
 
-        Runner.Spawn(resolvedBombPrefab, spawnPos, Quaternion.identity, Object.InputAuthority);
+        NetworkObject spawnedBomb = Runner.Spawn(resolvedBombPrefab, spawnPos, Quaternion.identity, Object.InputAuthority);
+        if (spawnedBomb != null)
+        {
+            activeBombs.Add(spawnedBomb);
+        }
     }
 
     private bool HasBombAtCell(int cellX, int cellZ)
