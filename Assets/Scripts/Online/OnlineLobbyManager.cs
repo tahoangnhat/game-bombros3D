@@ -34,6 +34,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     public NetworkObject playerPrefab;
     public NetworkObject bombPrefab;
     public NetworkObject explosionPrefab;
+    public NetworkObject buffPrefab;
 
     [Header("Runtime")]
     public bool autoInitialize = true;
@@ -1839,7 +1840,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private void AutoAssignNetworkPrefabs()
     {
-        OnlineNetworkPrefabBinder.AutoAssign(ref playerPrefab, ref bombPrefab, ref explosionPrefab);
+        OnlineNetworkPrefabBinder.AutoAssign(ref playerPrefab, ref bombPrefab, ref explosionPrefab, ref buffPrefab);
     }
 
     private void SpawnActivePlayersFromGameScene()

@@ -5,6 +5,7 @@ public class PlayerHealth : MonoBehaviour
     public int maxHealth = 1;
 
     int currentHealth;
+    public bool hasShield;
 
     void Awake()
     {
@@ -14,6 +15,13 @@ public class PlayerHealth : MonoBehaviour
     public void TakeDamage(int damage)
     {
         if (damage <= 0 || currentHealth <= 0) return;
+
+        if (hasShield)
+        {
+            hasShield = false;
+            Debug.Log($"[Health] {name} shield absorbed the damage. Shield broke!");
+            return;
+        }
 
         currentHealth -= damage;
         Debug.Log($"[Health] {name} took {damage} damage. Health: {Mathf.Max(0, currentHealth)}/{maxHealth}");

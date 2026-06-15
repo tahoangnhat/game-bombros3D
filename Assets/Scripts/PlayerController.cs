@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody))]
@@ -29,11 +30,24 @@ public class PlayerController : MonoBehaviour
     float lastBombTime = -10f;
     private List<Bomb> activeBombs = new List<Bomb>();
 
+    // Buff fields
+    private float baseMoveSpeed;
+    private int maxActiveBombs = 2;
+    private int currentBombRange = 1;
+    private Coroutine speedBuffCoroutine;
+
     void Awake()
     {
+        if (OnlineSessionState.IsOnlineSession)
+        {
+            enabled = false;
+            return;
+        }
+
         rb = GetComponent<Rigidbody>();
         bodyCollider = GetComponent<Collider>();
         rb.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionY;
+        baseMoveSpeed = moveSpeed;
     }
 
     void Update()
@@ -107,7 +121,7 @@ public class PlayerController : MonoBehaviour
 
         // Clean up exploded bombs (null references)
         activeBombs.RemoveAll(bomb => bomb == null);
-        if (activeBombs.Count >= 2)
+        if (activeBombs.Count >= maxActiveBombs)
         {
             return;
         }
@@ -126,6 +140,7 @@ public class PlayerController : MonoBehaviour
         if (bomb != null)
         {
             bomb.SetOwnerCollider(GetComponent<Collider>());
+            bomb.explosionRange = currentBombRange;
             activeBombs.Add(bomb);
         }
     }
@@ -195,5 +210,35 @@ public class PlayerController : MonoBehaviour
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(groundCheck.position, groundDistance);
         }
+    }
+
+    // Buff helper methods
+    public void IncreaseBombRange()
+    {
+        currentBombRange = Mathf.Min(2, currentBombRange + 1); // Max range 2 is 5x5
+        Debug.Log($"[Buff] Local bomb range increased to {currentBombRange}");
+    }
+
+    public void IncreaseMaxActiveBombs()
+    {
+        maxActiveBombs = Mathf.Min(3, maxActiveBombs + 1);
+        Debug.Log($"[Buff] Local max active bombs increased to {maxActiveBombs}");
+    }
+
+    public void ApplySpeedBuff(float multiplier, float duration)
+    {
+        if (speedBuffCoroutine != null)
+        {
+            StopCoroutine(speedBuffCoroutine);
+        }
+        speedBuffCoroutine = StartCoroutine(SpeedBuffRoutine(multiplier, duration));
+    }
+
+    private IEnumerator SpeedBuffRoutine(float multiplier, float duration)
+    {
+        moveSpeed = baseMoveSpeed * multiplier;
+        yield return new WaitForSeconds(duration);
+        moveSpeed = baseMoveSpeed;
+        speedBuffCoroutine = null;
     }
 }

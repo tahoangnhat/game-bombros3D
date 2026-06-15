@@ -3,7 +3,7 @@ using UnityEngine;
 
 public static class OnlineNetworkPrefabBinder
 {
-    public static void AutoAssign(ref NetworkObject playerPrefab, ref NetworkObject bombPrefab, ref NetworkObject explosionPrefab)
+    public static void AutoAssign(ref NetworkObject playerPrefab, ref NetworkObject bombPrefab, ref NetworkObject explosionPrefab, ref NetworkObject buffPrefab)
     {
         if (playerPrefab == null)
         {
@@ -18,6 +18,11 @@ public static class OnlineNetworkPrefabBinder
         if (explosionPrefab == null)
         {
             explosionPrefab = LoadFusionNetworkPrefab("Assets/Prefab/Explosion.prefab");
+        }
+
+        if (buffPrefab == null)
+        {
+            buffPrefab = LoadFusionNetworkPrefab("Assets/Prefab/BuffItem.prefab");
         }
     }
 
@@ -66,4 +71,37 @@ public static class OnlineNetworkPrefabBinder
         return null;
 #endif
     }
+
+    private static void CreateDefaultBuffPrefab()
+    {
+#if UNITY_EDITOR
+        string path = "Assets/Prefab/BuffItem.prefab";
+        if (System.IO.File.Exists(path)) return;
+
+        Debug.Log("Generating default BuffItem prefab at Assets/Prefab/BuffItem.prefab...");
+        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        go.name = "BuffItem";
+
+        Collider col = go.GetComponent<Collider>();
+        if (col != null) col.isTrigger = true;
+
+        go.AddComponent<NetworkObject>();
+        go.AddComponent<NetworkTransform>();
+        go.AddComponent<BuffItem>();
+
+        System.IO.Directory.CreateDirectory("Assets/Prefab");
+        UnityEditor.PrefabUtility.SaveAsPrefabAsset(go, path);
+        Object.DestroyImmediate(go);
+
+        Debug.Log("BuffItem prefab successfully created! Please run 'Tools > Fusion > Rebuild Prefab Table' if it doesn't show up in Fusion.");
+#endif
+    }
+
+#if UNITY_EDITOR
+    [UnityEditor.MenuItem("Tools/Game/Generate Buff Prefab")]
+    public static void CreateDefaultBuffPrefabMenu()
+    {
+        CreateDefaultBuffPrefab();
+    }
+#endif
 }

@@ -1,5 +1,6 @@
 using Fusion;
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody))]
@@ -32,6 +33,13 @@ public class OnlinePlayerController : NetworkBehaviour
     private float lastBombTime = -10f;
     private List<NetworkObject> activeBombs = new List<NetworkObject>();
 
+    // Buff networked properties
+    [Networked] public int CurrentBombRange { get; set; }
+    [Networked] public int MaxActiveBombs { get; set; }
+    [Networked] public float CurrentMoveSpeed { get; set; }
+
+    private Coroutine speedBuffCoroutine;
+
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
@@ -48,6 +56,13 @@ public class OnlinePlayerController : NetworkBehaviour
         if (Object.HasInputAuthority)
         {
             OnlineSessionState.IsOnlineSession = true;
+        }
+
+        if (Object.HasStateAuthority)
+        {
+            CurrentBombRange = 1;
+            MaxActiveBombs = 2;
+            CurrentMoveSpeed = moveSpeed;
         }
     }
 
@@ -91,8 +106,9 @@ public class OnlinePlayerController : NetworkBehaviour
     isGrounded = IsGrounded();
 
     float control = isGrounded ? 1f : airControl;
+    float currentSpeed = CurrentMoveSpeed > 0f ? CurrentMoveSpeed : moveSpeed;
     // Fusion mặc định sử dụng Runner.DeltaTime trong FixedUpdateNetwork
-    Vector3 moveStep = new Vector3(inputDirection.x, 0f, inputDirection.z) * (moveSpeed * control * Runner.DeltaTime);
+    Vector3 moveStep = new Vector3(inputDirection.x, 0f, inputDirection.z) * (currentSpeed * control * Runner.DeltaTime);
 
     if (!IsFinite(moveStep))
     {
@@ -111,7 +127,7 @@ public class OnlinePlayerController : NetworkBehaviour
 
         // Clean up despawned / invalid bombs
         activeBombs.RemoveAll(bomb => bomb == null || !bomb.IsValid);
-        if (activeBombs.Count >= 2)
+        if (activeBombs.Count >= MaxActiveBombs)
         {
             return;
         }
@@ -136,7 +152,20 @@ public class OnlinePlayerController : NetworkBehaviour
         Vector3 spawnPos = GridUtility.GetCellCenter(cellX, cellZ);
         spawnPos.y = transform.position.y;
 
-        NetworkObject spawnedBomb = Runner.Spawn(resolvedBombPrefab, spawnPos, Quaternion.identity, Object.InputAuthority);
+        NetworkObject spawnedBomb = Runner.Spawn(
+            resolvedBombPrefab,
+            spawnPos,
+            Quaternion.identity,
+            Object.InputAuthority,
+            (NetworkRunner runner, NetworkObject obj) =>
+            {
+                OnlineBomb bomb = obj.GetComponent<OnlineBomb>();
+                if (bomb != null)
+                {
+                    bomb.explosionRange = CurrentBombRange;
+                }
+            });
+
         if (spawnedBomb != null)
         {
             activeBombs.Add(spawnedBomb);
@@ -185,5 +214,39 @@ public class OnlinePlayerController : NetworkBehaviour
     private bool IsEliminated()
     {
         return health != null && health.IsEliminated;
+    }
+
+    // Buff helper methods
+    public void IncreaseBombRange()
+    {
+        if (!Object.HasStateAuthority) return;
+        CurrentBombRange = Mathf.Min(2, CurrentBombRange + 1); // Max range 2 is 5x5
+        Debug.Log($"[Buff] Online player range increased to {CurrentBombRange}");
+    }
+
+    public void IncreaseMaxActiveBombs()
+    {
+        if (!Object.HasStateAuthority) return;
+        MaxActiveBombs = Mathf.Min(3, MaxActiveBombs + 1);
+        Debug.Log($"[Buff] Online player max active bombs increased to {MaxActiveBombs}");
+    }
+
+    public void ApplySpeedBuff(float multiplier, float duration)
+    {
+        if (!Object.HasStateAuthority) return;
+
+        if (speedBuffCoroutine != null)
+        {
+            StopCoroutine(speedBuffCoroutine);
+        }
+        speedBuffCoroutine = StartCoroutine(SpeedBuffRoutine(multiplier, duration));
+    }
+
+    private IEnumerator SpeedBuffRoutine(float multiplier, float duration)
+    {
+        CurrentMoveSpeed = moveSpeed * multiplier;
+        yield return new WaitForSeconds(duration);
+        CurrentMoveSpeed = moveSpeed;
+        speedBuffCoroutine = null;
     }
 }

@@ -103,6 +103,15 @@ public class Bomb : MonoBehaviour
         {
             MatchGridState.MarkDestroyed(cellX, cellZ);
             DestructibleWall.DestroyAtCell(cellX, cellZ);
+
+            // Check consolidated buff spawning logic
+            if (MatchGridState.TryDetermineBuffType(cellX, cellZ, out BuffItem.BuffType buffType))
+            {
+                Vector3 buffSpawnPos = GridUtility.GetCellCenter(cellX, cellZ);
+                buffSpawnPos.y = 0.5f;
+                BuffItem.CreateLocalBuff(buffSpawnPos, buffType);
+            }
+
             return false;
         }
 

@@ -149,6 +149,39 @@ public class OnlineBomb : NetworkBehaviour
         if (destroyDestructible)
         {
             MatchGridState.MarkDestroyed(cellX, cellZ);
+
+            if (Object.HasStateAuthority)
+            {
+                if (MatchGridState.TryDetermineBuffType(cellX, cellZ, out BuffItem.BuffType buffType))
+                {
+                    NetworkObject resolvedBuffPrefab = null;
+                    if (OnlineLobbyManager.Instance != null)
+                    {
+                        resolvedBuffPrefab = OnlineLobbyManager.Instance.buffPrefab;
+                    }
+
+                    if (resolvedBuffPrefab != null)
+                    {
+                        Vector3 buffSpawnPos = GridUtility.GetCellCenter(cellX, cellZ);
+                        buffSpawnPos.y = 0.5f;
+
+                        Runner.Spawn(
+                            resolvedBuffPrefab,
+                            buffSpawnPos,
+                            Quaternion.identity,
+                            PlayerRef.None,
+                            (NetworkRunner runner, NetworkObject obj) =>
+                            {
+                                BuffItem buff = obj.GetComponent<BuffItem>();
+                                if (buff != null)
+                                {
+                                    buff.buffType = buffType;
+                                }
+                            });
+                    }
+                }
+            }
+
             return false;
         }
 

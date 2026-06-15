@@ -11,6 +11,9 @@ public class OnlinePlayerHealth : NetworkBehaviour
     [Networked]
     public NetworkBool IsEliminated { get; set; }
 
+    [Networked]
+    public NetworkBool HasShield { get; set; }
+
     public bool IsAlive => !IsEliminated && CurrentHealth > 0;
 
     private bool presentationApplied;
@@ -56,6 +59,13 @@ public class OnlinePlayerHealth : NetworkBehaviour
     {
         if (IsEliminated || CurrentHealth <= 0)
         {
+            return;
+        }
+
+        if (HasShield)
+        {
+            HasShield = false;
+            Debug.Log($"[Health] Player {Object.InputAuthority.PlayerId} shield absorbed the damage. Shield broke!");
             return;
         }
 
