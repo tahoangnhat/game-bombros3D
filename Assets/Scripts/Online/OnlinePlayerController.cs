@@ -93,30 +93,35 @@ public class OnlinePlayerController : NetworkBehaviour
             }
 
             if (input.PlaceBomb && Object.HasStateAuthority && Runner.SimulationTime - lastBombTime >= bombCooldown)
-        {
-            PlaceBomb();
-            lastBombTime = Runner.SimulationTime;
+            {
+                PlaceBomb();
+                lastBombTime = Runner.SimulationTime;
+            }
         }
+        else
+        {
+            inputDirection = Vector3.zero;
+        }
+
+        isGrounded = IsGrounded();
+
+        if (inputDirection.sqrMagnitude > 0.01f)
+        {
+            transform.forward = inputDirection;
+        }
+
+        float control = isGrounded ? 1f : airControl;
+        float currentSpeed = CurrentMoveSpeed > 0f ? CurrentMoveSpeed : moveSpeed;
+        // Fusion mặc định sử dụng Runner.DeltaTime trong FixedUpdateNetwork
+        Vector3 moveStep = new Vector3(inputDirection.x, 0f, inputDirection.z) * (currentSpeed * control * Runner.DeltaTime);
+
+        if (!IsFinite(moveStep))
+        {
+            return;
+        }
+
+        PlayerMovementUtility.TryMove(transform, bodyCollider, moveStep);
     }
-    else
-    {
-        inputDirection = Vector3.zero;
-    }
-
-    isGrounded = IsGrounded();
-
-    float control = isGrounded ? 1f : airControl;
-    float currentSpeed = CurrentMoveSpeed > 0f ? CurrentMoveSpeed : moveSpeed;
-    // Fusion mặc định sử dụng Runner.DeltaTime trong FixedUpdateNetwork
-    Vector3 moveStep = new Vector3(inputDirection.x, 0f, inputDirection.z) * (currentSpeed * control * Runner.DeltaTime);
-
-    if (!IsFinite(moveStep))
-    {
-        return;
-    }
-
-    PlayerMovementUtility.TryMove(transform, bodyCollider, moveStep);
-}
 
     private void PlaceBomb()
     {
