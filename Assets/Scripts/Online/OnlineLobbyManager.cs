@@ -644,7 +644,13 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         try
         {
             statusMessage = "Creating lobby...";
-            currentLobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers);
+            currentLobby = await LobbyService.Instance.CreateLobbyAsync(
+                lobbyName,
+                maxPlayers,
+                new CreateLobbyOptions
+                {
+                    Player = BuildLobbyPlayer(true)
+                });
             isHost = true;
             await SendHeartbeatAsync();
             await SetLocalReadyAsync(true);
@@ -765,7 +771,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             try
             {
-                return await LobbyService.Instance.JoinLobbyByCodeAsync(lobbyCode);
+                return await LobbyService.Instance.JoinLobbyByCodeAsync(lobbyCode, new JoinLobbyByCodeOptions
+                {
+                    Player = BuildLobbyPlayer(false)
+                });
             }
             catch (LobbyServiceException ex) when (ex.Reason == LobbyExceptionReason.LobbyConflict)
             {
@@ -1040,7 +1049,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         try
         {
             statusMessage = "Quick joining...";
-            currentLobby = await LobbyService.Instance.QuickJoinLobbyAsync();
+            currentLobby = await LobbyService.Instance.QuickJoinLobbyAsync(new QuickJoinLobbyOptions
+            {
+                Player = BuildLobbyPlayer(false)
+            });
 
             statusMessage = "Starting Fusion client session...";
             if (!await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode))
@@ -1156,10 +1168,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             Debug.LogException(ex);
         }
 
-        if (runner != null)
-        {
-            _ = runner.Shutdown();
-        }
+        await ShutdownAndDisposeRunnerAsync();
 
         ClearLobbySessionState("Left session");
     }
@@ -1282,6 +1291,12 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task SetLocalReadyAsync(bool ready)
     {
+        if (!await EnsureUnityAuthenticationAsync())
+        {
+            statusMessage = "Please login first";
+            return;
+        }
+
         string playerId = GetPlayerIdSafe();
         if (currentLobby == null || string.IsNullOrEmpty(playerId))
         {
@@ -1292,11 +1307,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             UpdatePlayerOptions options = new UpdatePlayerOptions
             {
-                Data = new Dictionary<string, PlayerDataObject>
-                {
-                    { ReadyKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, ready ? "1" : "0") },
-                    { DisplayNameKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, BuildLocalDisplayName()) }
-                }
+                Data = BuildLobbyPlayerData(ready)
             };
 
             currentLobby = await LobbyService.Instance.UpdatePlayerAsync(
@@ -1312,6 +1323,23 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             statusMessage = $"Ready update failed: {ex.Message}";
             Debug.LogException(ex);
         }
+    }
+
+    private Player BuildLobbyPlayer(bool ready)
+    {
+        string playerId = GetPlayerIdSafe();
+        return new Player(
+            id: string.IsNullOrWhiteSpace(playerId) ? null : playerId,
+            data: BuildLobbyPlayerData(ready));
+    }
+
+    private Dictionary<string, PlayerDataObject> BuildLobbyPlayerData(bool ready)
+    {
+        return new Dictionary<string, PlayerDataObject>
+        {
+            { ReadyKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, ready ? "1" : "0") },
+            { DisplayNameKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, BuildLocalDisplayName()) }
+        };
     }
 
     private bool AreAllPlayersReady()
@@ -1618,35 +1646,6 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             return false;
         }
 
-        if (runner == null)
-        {
-            GameObject networkRoot = new GameObject("FusionRunner");
-            runner = networkRoot.AddComponent<NetworkRunner>();
-            sceneManager = networkRoot.AddComponent<NetworkSceneManagerDefault>();
-            DontDestroyOnLoad(networkRoot);
-        }
-
-        if (runner == null)
-        {
-            statusMessage = "Fusion runner unavailable";
-            return false;
-        }
-
-        if (runner.GetComponent<NetworkObjectProviderDefault>() == null)
-        {
-            runner.gameObject.AddComponent<NetworkObjectProviderDefault>();
-        }
-
-        if (!await EnsureRunnerShutdownAsync())
-        {
-            statusMessage = "Could not reset Fusion runner";
-            return false;
-        }
-
-        runner.ProvideInput = true;
-        runner.RemoveCallbacks(this);
-        runner.AddCallbacks(this);
-
         int maxAttempts = gameMode == GameMode.Client ? FusionJoinRetryAttempts : 1;
         for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
@@ -1655,6 +1654,16 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                 statusMessage = $"Waiting for host Fusion session ({attempt + 1}/{maxAttempts})...";
                 await Task.Delay(FusionJoinRetryDelayMs);
             }
+
+            if (!await RecreateFusionRunnerAsync())
+            {
+                statusMessage = "Could not reset Fusion runner";
+                return false;
+            }
+
+            runner.ProvideInput = true;
+            runner.RemoveCallbacks(this);
+            runner.AddCallbacks(this);
 
             StartGameResult result = await runner.StartGame(new StartGameArgs
             {
@@ -1688,26 +1697,62 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         return false;
     }
 
-    private async Task<bool> EnsureRunnerShutdownAsync()
+    private async Task<bool> RecreateFusionRunnerAsync()
     {
-        if (runner == null || !runner.IsRunning)
+        if (!await ShutdownAndDisposeRunnerAsync())
+        {
+            return false;
+        }
+
+        GameObject networkRoot = new GameObject("FusionRunner");
+        runner = networkRoot.AddComponent<NetworkRunner>();
+        sceneManager = networkRoot.AddComponent<NetworkSceneManagerDefault>();
+        networkRoot.AddComponent<NetworkObjectProviderDefault>();
+        DontDestroyOnLoad(networkRoot);
+
+        return runner != null && sceneManager != null;
+    }
+
+    private async Task<bool> ShutdownAndDisposeRunnerAsync()
+    {
+        if (runner == null)
         {
             return true;
         }
 
-        runner.Shutdown();
+        NetworkRunner oldRunner = runner;
+        GameObject oldRunnerObject = oldRunner.gameObject;
 
-        for (int i = 0; i < 40; i++)
+        oldRunner.RemoveCallbacks(this);
+
+        if (oldRunner.IsRunning)
         {
-            if (!runner.IsRunning)
-            {
-                return true;
-            }
+            await oldRunner.Shutdown();
 
-            await Task.Delay(50);
+            for (int i = 0; i < 40; i++)
+            {
+                if (!oldRunner.IsRunning)
+                {
+                    break;
+                }
+
+                await Task.Delay(50);
+            }
         }
 
-        return !runner.IsRunning;
+        bool shutdownComplete = !oldRunner.IsRunning;
+        if (runner == oldRunner)
+        {
+            runner = null;
+            sceneManager = null;
+        }
+
+        if (oldRunnerObject != null)
+        {
+            Destroy(oldRunnerObject);
+        }
+
+        return shutdownComplete;
     }
 
     private static string BuildFusionStartFailureMessage(GameMode gameMode, StartGameResult result)
