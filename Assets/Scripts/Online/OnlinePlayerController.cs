@@ -37,6 +37,7 @@ public class OnlinePlayerController : NetworkBehaviour
     [Networked] public int CurrentBombRange { get; set; }
     [Networked] public int MaxActiveBombs { get; set; }
     [Networked] public float CurrentMoveSpeed { get; set; }
+    [Networked] public float SpeedBuffProgress { get; set; }
 
     private Coroutine speedBuffCoroutine;
 
@@ -63,12 +64,13 @@ public class OnlinePlayerController : NetworkBehaviour
             CurrentBombRange = 1;
             MaxActiveBombs = 2;
             CurrentMoveSpeed = moveSpeed;
+            SpeedBuffProgress = 0f;
         }
     }
 
     private void Update()
     {
-        if (!Object.HasInputAuthority || IsEliminated())
+        if (Object == null || !Object.HasInputAuthority || IsEliminated())
         {
             return;
         }
@@ -105,14 +107,8 @@ public class OnlinePlayerController : NetworkBehaviour
 
         isGrounded = IsGrounded();
 
-        if (inputDirection.sqrMagnitude > 0.01f)
-        {
-            transform.forward = inputDirection;
-        }
-
         float control = isGrounded ? 1f : airControl;
         float currentSpeed = CurrentMoveSpeed > 0f ? CurrentMoveSpeed : moveSpeed;
-        // Fusion mặc định sử dụng Runner.DeltaTime trong FixedUpdateNetwork
         Vector3 moveStep = new Vector3(inputDirection.x, 0f, inputDirection.z) * (currentSpeed * control * Runner.DeltaTime);
 
         if (!IsFinite(moveStep))
@@ -225,7 +221,7 @@ public class OnlinePlayerController : NetworkBehaviour
     public void IncreaseBombRange()
     {
         if (!Object.HasStateAuthority) return;
-        CurrentBombRange = Mathf.Min(2, CurrentBombRange + 1); // Max range 2 is 5x5
+        CurrentBombRange = Mathf.Min(5, CurrentBombRange + 1); // Max range 5 is x5
         Debug.Log($"[Buff] Online player range increased to {CurrentBombRange}");
     }
 
@@ -250,8 +246,15 @@ public class OnlinePlayerController : NetworkBehaviour
     private IEnumerator SpeedBuffRoutine(float multiplier, float duration)
     {
         CurrentMoveSpeed = moveSpeed * multiplier;
-        yield return new WaitForSeconds(duration);
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            SpeedBuffProgress = Mathf.Clamp01(1f - (elapsed / duration));
+            yield return null;
+        }
         CurrentMoveSpeed = moveSpeed;
+        SpeedBuffProgress = 0f;
         speedBuffCoroutine = null;
     }
 }

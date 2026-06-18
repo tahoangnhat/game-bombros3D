@@ -212,10 +212,14 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    public int MaxActiveBombs => maxActiveBombs;
+    public int CurrentBombRange => currentBombRange;
+    public float SpeedBuffProgress { get; private set; }
+
     // Buff helper methods
     public void IncreaseBombRange()
     {
-        currentBombRange = Mathf.Min(2, currentBombRange + 1); // Max range 2 is 5x5
+        currentBombRange = Mathf.Min(5, currentBombRange + 1); // Max range 5 is x5
         Debug.Log($"[Buff] Local bomb range increased to {currentBombRange}");
     }
 
@@ -237,8 +241,15 @@ public class PlayerController : MonoBehaviour
     private IEnumerator SpeedBuffRoutine(float multiplier, float duration)
     {
         moveSpeed = baseMoveSpeed * multiplier;
-        yield return new WaitForSeconds(duration);
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            SpeedBuffProgress = Mathf.Clamp01(1f - (elapsed / duration));
+            yield return null;
+        }
         moveSpeed = baseMoveSpeed;
+        SpeedBuffProgress = 0f;
         speedBuffCoroutine = null;
     }
 }
