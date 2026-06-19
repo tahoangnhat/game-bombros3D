@@ -11,6 +11,8 @@ public class OnlinePlayerController : NetworkBehaviour
     [Header("Movement")]
     public float moveSpeed = 5f;
     public float airControl = 0.5f;
+    [Tooltip("How quickly the player turns to face its movement direction, in degrees per second.")]
+    public float turnSpeed = 720f;
 
     [Header("Bomb")]
     public NetworkObject bombPrefab;
@@ -25,6 +27,10 @@ public class OnlinePlayerController : NetworkBehaviour
     public float groundDistance = 0.2f;
     public LayerMask groundMask = ~0;
 
+    [Header("Player Visuals")]
+    [Tooltip("Four materials used by player slots 1-4. The same animated model is shared by every slot.")]
+    [SerializeField] private Material[] playerMaterials;
+
     private Rigidbody rb;
     private Collider bodyCollider;
     private OnlinePlayerHealth health;
@@ -38,14 +44,18 @@ public class OnlinePlayerController : NetworkBehaviour
     [Networked] public int MaxActiveBombs { get; set; }
     [Networked] public float CurrentMoveSpeed { get; set; }
     [Networked] public float SpeedBuffProgress { get; set; }
+    [Networked] public int VisualIndex { get; set; }
 
     private Coroutine speedBuffCoroutine;
+    private SkinnedMeshRenderer[] visualRenderers;
+    private int appliedVisualIndex = -1;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
         bodyCollider = GetComponent<Collider>();
         health = GetComponent<OnlinePlayerHealth>();
+        visualRenderers = GetComponentsInChildren<SkinnedMeshRenderer>(true);
         rb.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionY;
     }
 
@@ -66,6 +76,13 @@ public class OnlinePlayerController : NetworkBehaviour
             CurrentMoveSpeed = moveSpeed;
             SpeedBuffProgress = 0f;
         }
+
+        ApplyPlayerVisual();
+    }
+
+    public override void Render()
+    {
+        ApplyPlayerVisual();
     }
 
     private void Update()
@@ -116,7 +133,22 @@ public class OnlinePlayerController : NetworkBehaviour
             return;
         }
 
+        FaceMovementDirection();
         PlayerMovementUtility.TryMove(transform, bodyCollider, moveStep);
+    }
+
+    private void FaceMovementDirection()
+    {
+        if (inputDirection.sqrMagnitude <= 0.0001f)
+        {
+            return;
+        }
+
+        Quaternion targetRotation = Quaternion.LookRotation(inputDirection, Vector3.up);
+        transform.rotation = Quaternion.RotateTowards(
+            transform.rotation,
+            targetRotation,
+            turnSpeed * Runner.DeltaTime);
     }
 
     private void PlaceBomb()
@@ -215,6 +247,50 @@ public class OnlinePlayerController : NetworkBehaviour
     private bool IsEliminated()
     {
         return health != null && health.IsEliminated;
+    }
+
+    public void SetVisualIndex(int index)
+    {
+        if (Object != null && Object.HasStateAuthority)
+        {
+            VisualIndex = Mathf.Clamp(index, 0, 3);
+        }
+    }
+
+    private void ApplyPlayerVisual()
+    {
+        if (playerMaterials == null || playerMaterials.Length == 0)
+        {
+            return;
+        }
+
+        int materialIndex = Mathf.Abs(VisualIndex) % playerMaterials.Length;
+        if (appliedVisualIndex == materialIndex)
+        {
+            return;
+        }
+
+        Material material = playerMaterials[materialIndex];
+        if (material == null)
+        {
+            return;
+        }
+
+        if (visualRenderers == null || visualRenderers.Length == 0)
+        {
+            visualRenderers = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        }
+
+        for (int i = 0; i < visualRenderers.Length; i++)
+        {
+            SkinnedMeshRenderer visualRenderer = visualRenderers[i];
+            if (visualRenderer != null && visualRenderer.sharedMesh != null)
+            {
+                visualRenderer.sharedMaterial = material;
+            }
+        }
+
+        appliedVisualIndex = materialIndex;
     }
 
     // Buff helper methods

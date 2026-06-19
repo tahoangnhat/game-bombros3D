@@ -120,7 +120,20 @@ public class OnlineGameSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        NetworkObject playerObject = runner.Spawn(playerPrefab, spawnPosition, Quaternion.identity, player);
+        int visualIndex = playerIndex >= 0 ? playerIndex % 4 : GetAvailableVisualIndex(runner);
+        NetworkObject playerObject = runner.Spawn(
+            playerPrefab,
+            spawnPosition,
+            Quaternion.identity,
+            player,
+            (NetworkRunner spawnRunner, NetworkObject spawnedObject) =>
+            {
+                OnlinePlayerController spawnedController = spawnedObject.GetComponent<OnlinePlayerController>();
+                if (spawnedController != null)
+                {
+                    spawnedController.SetVisualIndex(visualIndex);
+                }
+            });
         if (playerObject == null)
         {
             return;
@@ -135,6 +148,35 @@ public class OnlineGameSpawner : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         Debug.Log($"[Spawner] Spawned player {player.PlayerId} at {spawnPosition}.");
+    }
+
+    private int GetAvailableVisualIndex(NetworkRunner runner)
+    {
+        bool[] usedVisuals = new bool[4];
+        foreach (PlayerRef activePlayer in runner.ActivePlayers)
+        {
+            NetworkObject existingPlayer = runner.GetPlayerObject(activePlayer);
+            if (existingPlayer == null)
+            {
+                continue;
+            }
+
+            OnlinePlayerController controller = existingPlayer.GetComponent<OnlinePlayerController>();
+            if (controller != null && controller.VisualIndex >= 0 && controller.VisualIndex < usedVisuals.Length)
+            {
+                usedVisuals[controller.VisualIndex] = true;
+            }
+        }
+
+        for (int i = 0; i < usedVisuals.Length; i++)
+        {
+            if (!usedVisuals[i])
+            {
+                return i;
+            }
+        }
+
+        return 0;
     }
 
     private void EnsureSpawnPoints()

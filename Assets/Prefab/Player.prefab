@@ -161,6 +161,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OnlinePlayerController
   moveSpeed: 5
   airControl: 0.5
+  turnSpeed: 720
   bombPrefab: {fileID: 8623456789012345670, guid: deec0b8f2c9b5d847b35df609d14fcf8, type: 3}
   bombCooldown: 0.5
   tileHighlight: {fileID: 0}
@@ -170,9 +171,15 @@ MonoBehaviour:
   groundMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  playerMaterials:
+  - {fileID: 2100000, guid: 15eb7b23b15c08b498a63ef72d7e2094, type: 2}
+  - {fileID: 2100000, guid: c7b559d8d9453684ca73ed60d58a8360, type: 2}
+  - {fileID: 2100000, guid: 666a436a619a2f2418d1f47d716de411, type: 2}
+  - {fileID: 2100000, guid: c1a9754ea4182e041bcc67514ee7f090, type: 2}
   _CurrentBombRange: 0
   _MaxActiveBombs: 0
   _CurrentMoveSpeed: 0
+  _VisualIndex: 0
 --- !u!114 &6001697204301001358
 MonoBehaviour:
   m_ObjectHideFlags: 0
