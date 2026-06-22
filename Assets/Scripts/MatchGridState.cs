@@ -102,11 +102,19 @@ public static class MatchGridState
             return false;
         }
 
-        // 3. Check Speed and Shield Buffs (15% spawn rate, unlimited)
-        // Segment (0.45, 0.60]
-        if (roll > 0.45f && roll <= 0.60f)
+        // 3. Check Speed Buff (20% spawn rate, unlimited)
+        // Segment (0.45, 0.65]
+        if (roll > 0.45f && roll <= 0.65f)
         {
-            buffType = Random.value <= 0.5f ? BuffItem.BuffType.Speed : BuffItem.BuffType.Shield;
+            buffType = BuffItem.BuffType.Speed;
+            return true;
+        }
+
+        // 4. Check Shield Buff (10% spawn rate, unlimited)
+        // Segment (0.65, 0.75]
+        if (roll > 0.65f && roll <= 0.75f)
+        {
+            buffType = BuffItem.BuffType.Shield;
             return true;
         }
 

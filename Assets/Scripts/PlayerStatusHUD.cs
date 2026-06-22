@@ -16,7 +16,7 @@ public class PlayerStatusHUD : MonoBehaviour
         public Image shieldLight;
         public Image bombLight;
         public TextMeshProUGUI rangeText;
-        public Image speedBarFill;
+        public TextMeshProUGUI speedCountdownText;
         public GameObject eliminatedOverlay;
 
         [HideInInspector]
@@ -51,8 +51,8 @@ public class PlayerStatusHUD : MonoBehaviour
     private void BindPlayersToCards()
     {
         // 1. Gather all active players
-        List<PlayerController> localPlayers = new List<PlayerController>(FindObjectsByType<PlayerController>(FindObjectsSortMode.None));
-        List<OnlinePlayerController> onlinePlayers = new List<OnlinePlayerController>(FindObjectsByType<OnlinePlayerController>(FindObjectsSortMode.None));
+        List<PlayerController> localPlayers = new List<PlayerController>(FindObjectsByType<PlayerController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None));
+        List<OnlinePlayerController> onlinePlayers = new List<OnlinePlayerController>(FindObjectsByType<OnlinePlayerController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None));
 
         int totalPlayers = localPlayers.Count + onlinePlayers.Count;
 
@@ -117,8 +117,8 @@ public class PlayerStatusHUD : MonoBehaviour
         Color inactiveGrey = new Color(0.3f, 0.32f, 0.35f, 1f);
 
         // Gather lists again for lookup
-        List<PlayerController> localPlayers = new List<PlayerController>(FindObjectsByType<PlayerController>(FindObjectsSortMode.None));
-        List<OnlinePlayerController> onlinePlayers = new List<OnlinePlayerController>(FindObjectsByType<OnlinePlayerController>(FindObjectsSortMode.None));
+        List<PlayerController> localPlayers = new List<PlayerController>(FindObjectsByType<PlayerController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None));
+        List<OnlinePlayerController> onlinePlayers = new List<OnlinePlayerController>(FindObjectsByType<OnlinePlayerController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None));
 
         int localCount = localPlayers.Count;
 
@@ -190,9 +190,19 @@ public class PlayerStatusHUD : MonoBehaviour
                 if (card.bombLight != null) card.bombLight.color = hasBombBuff ? activeGreen : inactiveGrey;
                 if (card.rangeText != null) card.rangeText.text = "x" + Mathf.Clamp(currentRange, 1, 5);
                 
-                if (card.speedBarFill != null)
+                if (card.speedCountdownText != null)
                 {
-                    card.speedBarFill.fillAmount = speedProgress;
+                    int remainingSeconds = Mathf.CeilToInt(speedProgress * 15f);
+                    if (remainingSeconds > 0)
+                    {
+                        card.speedCountdownText.text = remainingSeconds + "s";
+                        card.speedCountdownText.color = activeGreen;
+                    }
+                    else
+                    {
+                        card.speedCountdownText.text = "0s";
+                        card.speedCountdownText.color = inactiveGrey;
+                    }
                 }
             }
         }
