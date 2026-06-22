@@ -35,7 +35,7 @@ public class LevelDataGenerator
 
         foreach (string themeName in themeNames)
         {
-            string path = $"Assets/Resources/Levels/Level_{themeName}.asset";
+            string path = $"Assets/Levels/Level_{themeName}.asset";
             LevelData levelData = AssetDatabase.LoadAssetAtPath<LevelData>(path);
             if (levelData == null)
             {
@@ -61,8 +61,8 @@ public class LevelDataGenerator
         levelData.height = 13;
         levelData.layout = layout;
 
-        string path = $"Assets/Resources/Levels/Level_{themeName}.asset";
-        System.IO.Directory.CreateDirectory("Assets/Resources/Levels");
+        string path = $"Assets/Levels/Level_{themeName}.asset";
+        System.IO.Directory.CreateDirectory("Assets/Levels");
         
         AssetDatabase.CreateAsset(levelData, path);
         AssetDatabase.SaveAssets();
