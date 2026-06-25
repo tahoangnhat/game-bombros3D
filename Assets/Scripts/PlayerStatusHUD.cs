@@ -92,7 +92,19 @@ public class PlayerStatusHUD : MonoBehaviour
                 {
                     card.cardParent.SetActive(true);
                     card.isAssigned = true;
-                    if (card.playerNameText != null) card.playerNameText.text = onlinePlayers[i].name.ToUpper();
+                    if (card.playerNameText != null)
+                    {
+                        string displayName = "";
+                        if (onlinePlayers[i].Object != null && onlinePlayers[i].Object.IsValid)
+                        {
+                            displayName = onlinePlayers[i].Nickname.ToString();
+                        }
+                        if (string.IsNullOrEmpty(displayName))
+                        {
+                            displayName = onlinePlayers[i].name;
+                        }
+                        card.playerNameText.text = displayName.ToUpper();
+                    }
                 }
             }
         }
