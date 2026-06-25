@@ -45,6 +45,7 @@ public class OnlinePlayerController : NetworkBehaviour
     [Networked] public float CurrentMoveSpeed { get; set; }
     [Networked] public float SpeedBuffProgress { get; set; }
     [Networked] public int VisualIndex { get; set; }
+    [Networked] public NetworkString<_32> Nickname { get; set; }
 
     private Coroutine speedBuffCoroutine;
     private SkinnedMeshRenderer[] visualRenderers;
@@ -67,6 +68,23 @@ public class OnlinePlayerController : NetworkBehaviour
         if (Object.HasInputAuthority)
         {
             OnlineSessionState.IsOnlineSession = true;
+            
+            string myName = "";
+            if (OnlineLobbyManager.Instance != null)
+            {
+                myName = OnlineLobbyManager.Instance.BuildLocalDisplayName();
+            }
+            else
+            {
+                myName = SpringAuthSession.Username;
+            }
+
+            if (string.IsNullOrEmpty(myName))
+            {
+                myName = "Player " + Object.InputAuthority.PlayerId;
+            }
+
+            RPC_SetNickname(myName);
         }
 
         if (Object.HasStateAuthority)
@@ -332,5 +350,11 @@ public class OnlinePlayerController : NetworkBehaviour
         CurrentMoveSpeed = moveSpeed;
         SpeedBuffProgress = 0f;
         speedBuffCoroutine = null;
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    public void RPC_SetNickname(string nickname)
+    {
+        Nickname = nickname;
     }
 }

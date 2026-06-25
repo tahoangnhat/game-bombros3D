@@ -1416,7 +1416,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         return "Player";
     }
 
-    private string BuildLocalDisplayName()
+    public string BuildLocalDisplayName()
     {
         if (!string.IsNullOrWhiteSpace(SpringAuthSession.Username))
         {
