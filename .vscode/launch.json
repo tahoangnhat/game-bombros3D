@@ -2,9 +2,16 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "type": "java",
+            "name": "BombrosAuthApplication",
+            "request": "launch",
+            "mainClass": "com.bombros.auth.BombrosAuthApplication",
+            "projectName": "bombros-auth"
+        },
+        {
             "name": "Attach to Unity",
             "type": "vstuc",
             "request": "attach"
         }
-     ]
+    ]
 }

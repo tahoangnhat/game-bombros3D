@@ -1,0 +1,42 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: bombros-auth
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/bombros_auth?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:12345}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:nhatdeveloper04@gmail.com}
+    password: ${MAIL_PASSWORD:bujcfgyucyeufobo}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS:true}
+
+bombros:
+  jwt:
+    secret: ${JWT_SECRET:8dK29slPq82Jd0xLmP29sKq91nAbC4xZ}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:120}
+  mail:
+    from: ${MAIL_FROM:nhatdeveloper04@gmail.com}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
