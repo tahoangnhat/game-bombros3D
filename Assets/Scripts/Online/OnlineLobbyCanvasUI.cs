@@ -143,11 +143,13 @@ public class OnlineLobbyCanvasUI : MonoBehaviour
 
         if (readyButton != null)
         {
+            readyButton.gameObject.SetActive(inLobby && !isHost);
             readyButton.interactable = canReady;
         }
 
         if (startButton != null)
         {
+            startButton.gameObject.SetActive(inLobby && isHost);
             startButton.interactable = canStart;
         }
 
