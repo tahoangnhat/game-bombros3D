@@ -35,6 +35,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
     [SerializeField] private TMP_InputField loginIdentifierField;
     [SerializeField] private TMP_InputField loginPasswordField;
     [SerializeField] private Button loginSubmitButton;
+    [SerializeField] private Button guestLoginButton;
     [SerializeField] private Button goToRegisterButton;
     [SerializeField] private Button goToForgotPasswordButton;
     [SerializeField] private Button loginPasswordEyeButton;
@@ -94,6 +95,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
     private void Awake()
     {
         ResolveSceneMode();
+        EnsureGuestLoginButton();
         BindEvents();
         HideErrorPopup();
     }
@@ -173,6 +175,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
     private void BindEvents()
     {
         if (loginSubmitButton != null) loginSubmitButton.onClick.AddListener(OnLoginClicked);
+        if (guestLoginButton != null) guestLoginButton.onClick.AddListener(OnGuestLoginClicked);
         if (goToRegisterButton != null) goToRegisterButton.onClick.AddListener(() => LoadScene(registerSceneName));
         if (goToForgotPasswordButton != null) goToForgotPasswordButton.onClick.AddListener(() => LoadScene(forgotPasswordSceneName));
         if (loginPasswordEyeButton != null) loginPasswordEyeButton.onClick.AddListener(OnLoginPasswordEyeClicked);
@@ -197,6 +200,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
     private void UnbindEvents()
     {
         if (loginSubmitButton != null) loginSubmitButton.onClick.RemoveListener(OnLoginClicked);
+        if (guestLoginButton != null) guestLoginButton.onClick.RemoveListener(OnGuestLoginClicked);
         if (goToRegisterButton != null) goToRegisterButton.onClick.RemoveAllListeners();
         if (goToForgotPasswordButton != null) goToForgotPasswordButton.onClick.RemoveAllListeners();
         if (loginPasswordEyeButton != null) loginPasswordEyeButton.onClick.RemoveListener(OnLoginPasswordEyeClicked);
@@ -266,6 +270,7 @@ public class OnlineAuthCanvasUI : MonoBehaviour
         bool canAuth = GetCanAuthenticate();
 
         SetInteractable(loginSubmitButton, canAuth && sceneMode == AuthSceneMode.Login);
+        SetInteractable(guestLoginButton, canAuth && sceneMode == AuthSceneMode.Login);
         SetInteractable(goToRegisterButton, canAuth && sceneMode == AuthSceneMode.Login);
         SetInteractable(goToForgotPasswordButton, canAuth && sceneMode == AuthSceneMode.Login);
         SetInteractable(loginPasswordEyeButton, sceneMode == AuthSceneMode.Login);
@@ -350,6 +355,82 @@ public class OnlineAuthCanvasUI : MonoBehaviour
         }
 
         lobbyManager?.Login(identifier, password);
+    }
+
+    private void OnGuestLoginClicked()
+    {
+        lastStatusMessage = string.Empty;
+
+        if (authClient != null)
+        {
+            authClient.LoginAsGuest();
+            return;
+        }
+
+        lobbyManager?.LoginAsGuest();
+    }
+
+    private void EnsureGuestLoginButton()
+    {
+        if (sceneMode != AuthSceneMode.Login || guestLoginButton != null || loginSubmitButton == null)
+        {
+            return;
+        }
+
+        GameObject buttonObject = new GameObject(
+            "GuestLoginButton",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(Image),
+            typeof(Button));
+        buttonObject.layer = loginSubmitButton.gameObject.layer;
+        buttonObject.transform.SetParent(loginSubmitButton.transform.parent, false);
+
+        RectTransform sourceRect = loginSubmitButton.GetComponent<RectTransform>();
+        RectTransform buttonRect = buttonObject.GetComponent<RectTransform>();
+        buttonRect.anchorMin = sourceRect.anchorMin;
+        buttonRect.anchorMax = sourceRect.anchorMax;
+        buttonRect.pivot = sourceRect.pivot;
+        buttonRect.sizeDelta = new Vector2(260f, 40f);
+        buttonRect.localScale = sourceRect.localScale;
+        buttonRect.anchoredPosition = new Vector2(sourceRect.anchoredPosition.x, -340f);
+
+        Image sourceImage = loginSubmitButton.GetComponent<Image>();
+        Image buttonImage = buttonObject.GetComponent<Image>();
+        if (sourceImage != null)
+        {
+            buttonImage.sprite = sourceImage.sprite;
+            buttonImage.type = sourceImage.type;
+            buttonImage.color = new Color(0.75f, 0.82f, 0.9f, 1f);
+            buttonImage.preserveAspect = sourceImage.preserveAspect;
+        }
+
+        guestLoginButton = buttonObject.GetComponent<Button>();
+        guestLoginButton.targetGraphic = buttonImage;
+        guestLoginButton.transition = loginSubmitButton.transition;
+        guestLoginButton.colors = loginSubmitButton.colors;
+
+        GameObject labelObject = new GameObject(
+            "Label",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(TextMeshProUGUI));
+        labelObject.layer = buttonObject.layer;
+        labelObject.transform.SetParent(buttonObject.transform, false);
+
+        RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+        labelRect.anchorMin = Vector2.zero;
+        labelRect.anchorMax = Vector2.one;
+        labelRect.offsetMin = Vector2.zero;
+        labelRect.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+        label.text = "PLAY AS GUEST";
+        label.alignment = TextAlignmentOptions.Center;
+        label.fontSize = 14f;
+        label.fontStyle = FontStyles.Bold;
+        label.color = Color.white;
+        label.raycastTarget = false;
     }
 
     private void OnRegisterClicked()
