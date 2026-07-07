@@ -58,7 +58,15 @@ public class AuthService {
         user.setEmailVerified(true);
         userRepository.save(user);
 
-        mailService.sendRegistrationSuccessEmail(user.getEmail(), user.getUsername());
+        boolean registrationEmailSent =
+            mailService.sendRegistrationSuccessEmail(user.getEmail(), user.getUsername());
+        if (!registrationEmailSent) {
+            log.warn(
+                "Account for '{}' was created, but the registration email could not be sent to '{}'",
+                user.getUsername(),
+                user.getEmail()
+            );
+        }
 
         String token = jwtService.generateToken(user.getUsername());
         return new AuthResponse(true, "Registered successfully", token, user.getUsername(), user.getEmail(), user.getRole());

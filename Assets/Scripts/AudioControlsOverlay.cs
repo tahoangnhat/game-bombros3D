@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
+[RequireComponent(typeof(AudioListener))]
 public class AudioControlsOverlay : MonoBehaviour
 {
     private const string VolumePrefKey = "BoomBros.MasterVolume";
@@ -14,17 +15,28 @@ public class AudioControlsOverlay : MonoBehaviour
     [SerializeField] private float volumeStep = 0.1f;
     [SerializeField] private Vector2 anchoredPosition = new Vector2(-24f, -24f);
     [SerializeField] private Vector2 buttonSize = new Vector2(64f, 42f);
+    [SerializeField] private float muteButtonWidth = 110f;
+    [SerializeField] private float volumeLabelWidth = 120f;
 
     private float volume = 1f;
     private bool muted;
     private TMP_Text volumeText;
     private TMP_Text muteButtonText;
+    private AudioListener fallbackAudioListener;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void Bootstrap()
     {
         if (instance != null)
         {
+            return;
+        }
+
+        AudioControlsOverlay[] existing =
+            FindObjectsByType<AudioControlsOverlay>(FindObjectsInactive.Include);
+        if (existing.Length > 0)
+        {
+            instance = existing[0];
             return;
         }
 
@@ -37,15 +49,24 @@ public class AudioControlsOverlay : MonoBehaviour
     {
         if (instance != null && instance != this)
         {
+            AudioListener duplicateListener = GetComponent<AudioListener>();
+            if (duplicateListener != null)
+            {
+                duplicateListener.enabled = false;
+            }
             Destroy(gameObject);
             return;
         }
 
         instance = this;
         DontDestroyOnLoad(gameObject);
+        fallbackAudioListener = GetComponent<AudioListener>();
+        fallbackAudioListener.enabled = true;
         LoadSettings();
         ApplySettings();
         SceneManager.sceneLoaded += OnSceneLoaded;
+        SceneManager.sceneUnloaded += OnSceneUnloaded;
+        OnlineScenePresentation.EnforceSingleEventSystem();
     }
 
     private void OnDestroy()
@@ -53,13 +74,15 @@ public class AudioControlsOverlay : MonoBehaviour
         if (instance == this)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneUnloaded -= OnSceneUnloaded;
             instance = null;
         }
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        EnsureSceneHasActiveAudioListener(scene);
+        EnforceSingleAudioListener();
+        OnlineScenePresentation.EnforceSingleEventSystem();
         ApplySettings();
 
         if (!ShouldShowInScene(scene.name))
@@ -76,6 +99,59 @@ public class AudioControlsOverlay : MonoBehaviour
 
         CreateControls(canvas);
         RefreshLabels();
+    }
+
+    private void OnSceneUnloaded(Scene scene)
+    {
+        if (fallbackAudioListener != null)
+        {
+            fallbackAudioListener.enabled = true;
+        }
+    }
+
+    private void Update()
+    {
+        if (instance != this)
+        {
+            if (fallbackAudioListener != null)
+            {
+                fallbackAudioListener.enabled = false;
+            }
+            Destroy(gameObject);
+            return;
+        }
+
+        EnforceSingleAudioListener();
+        OnlineScenePresentation.EnforceSingleEventSystem();
+
+        Camera mainCamera = Camera.main;
+        if (mainCamera != null)
+        {
+            transform.SetPositionAndRotation(
+                mainCamera.transform.position,
+                mainCamera.transform.rotation);
+        }
+    }
+
+    private void EnforceSingleAudioListener()
+    {
+        if (fallbackAudioListener == null)
+        {
+            return;
+        }
+
+        fallbackAudioListener.enabled = true;
+        AudioListener[] listeners = FindObjectsByType<AudioListener>(FindObjectsInactive.Include);
+        for (int i = 0; i < listeners.Length; i++)
+        {
+            AudioListener listener = listeners[i];
+            if (listener != null
+                && listener != fallbackAudioListener
+                && listener.enabled)
+            {
+                listener.enabled = false;
+            }
+        }
     }
 
     private static bool ShouldShowInScene(string sceneName)
@@ -111,37 +187,6 @@ public class AudioControlsOverlay : MonoBehaviour
         return fallback;
     }
 
-    private static void EnsureSceneHasActiveAudioListener(Scene scene)
-    {
-        AudioListener firstSceneListener = null;
-        bool sceneHasEnabledListener = false;
-        AudioListener[] listeners = FindObjectsByType<AudioListener>(FindObjectsInactive.Include);
-
-        for (int i = 0; i < listeners.Length; i++)
-        {
-            AudioListener listener = listeners[i];
-            if (listener == null || listener.gameObject.scene != scene)
-            {
-                continue;
-            }
-
-            if (firstSceneListener == null)
-            {
-                firstSceneListener = listener;
-            }
-
-            if (listener.enabled)
-            {
-                sceneHasEnabledListener = true;
-            }
-        }
-
-        if (!sceneHasEnabledListener && firstSceneListener != null)
-        {
-            firstSceneListener.enabled = true;
-        }
-    }
-
     private static bool CanvasAlreadyHasControls(Canvas canvas)
     {
         Transform existing = canvas.transform.Find(RootName);
@@ -158,11 +203,17 @@ public class AudioControlsOverlay : MonoBehaviour
         root.anchorMax = new Vector2(1f, 1f);
         root.pivot = new Vector2(1f, 1f);
         root.anchoredPosition = anchoredPosition;
-        root.sizeDelta = new Vector2(286f, buttonSize.y);
+        const float spacing = 8f;
+        float controlsWidth =
+            (buttonSize.x * 2f) +
+            muteButtonWidth +
+            volumeLabelWidth +
+            (spacing * 3f);
+        root.sizeDelta = new Vector2(controlsWidth, buttonSize.y);
 
         HorizontalLayoutGroup layout = rootObject.GetComponent<HorizontalLayoutGroup>();
         layout.childAlignment = TextAnchor.MiddleRight;
-        layout.spacing = 8f;
+        layout.spacing = spacing;
         layout.childForceExpandWidth = false;
         layout.childForceExpandHeight = false;
         layout.childControlWidth = true;
@@ -180,7 +231,7 @@ public class AudioControlsOverlay : MonoBehaviour
         buttonObject.transform.SetParent(parent, false);
 
         LayoutElement layout = buttonObject.GetComponent<LayoutElement>();
-        layout.preferredWidth = label == "Mute" ? 82f : buttonSize.x;
+        layout.preferredWidth = label == "Mute" ? muteButtonWidth : buttonSize.x;
         layout.preferredHeight = buttonSize.y;
 
         Image image = buttonObject.GetComponent<Image>();
@@ -204,6 +255,8 @@ public class AudioControlsOverlay : MonoBehaviour
         text.fontSize = 22f;
         text.color = Color.white;
         text.alignment = TextAlignmentOptions.Center;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
 
         return text;
     }
@@ -214,13 +267,15 @@ public class AudioControlsOverlay : MonoBehaviour
         labelObject.transform.SetParent(parent, false);
 
         LayoutElement layout = labelObject.GetComponent<LayoutElement>();
-        layout.preferredWidth = 96f;
+        layout.preferredWidth = volumeLabelWidth;
         layout.preferredHeight = buttonSize.y;
 
         TMP_Text text = labelObject.GetComponent<TMP_Text>();
         text.fontSize = 20f;
         text.color = Color.white;
         text.alignment = TextAlignmentOptions.Center;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
 
         return text;
     }

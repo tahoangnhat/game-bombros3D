@@ -31,6 +31,17 @@ public class SpringAuthClient : MonoBehaviour
         StartCoroutine(LoginRoutine(identifier, password));
     }
 
+    public void LoginAsGuest()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        string guestName = SpringAuthSession.StartGuestSession();
+        StatusMessage = "Logged in as " + guestName;
+    }
+
     public void RequestPasswordResetOtp(string email)
     {
         StartCoroutine(RequestPasswordResetOtpRoutine(email));

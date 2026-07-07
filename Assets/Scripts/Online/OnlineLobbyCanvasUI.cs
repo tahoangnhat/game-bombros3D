@@ -115,6 +115,17 @@ public class OnlineLobbyCanvasUI : MonoBehaviour
         }
     }
 
+    public void ShowForLobby()
+    {
+        gameObject.SetActive(true);
+        if (root != null)
+        {
+            root.SetActive(true);
+        }
+
+        RefreshUI();
+    }
+
     private void RefreshUI()
     {
         bool hasManager = lobbyManager != null;
@@ -132,7 +143,7 @@ public class OnlineLobbyCanvasUI : MonoBehaviour
             root.SetActive(true);
         }
 
-        SetText(lobbyCodeText, inLobby ? "Code phòng: " + lobbyManager.CurrentLobbyCode : "Code phòng: -");
+        SetText(lobbyCodeText, inLobby ? "Code: " + lobbyManager.CurrentLobbyCode : "Code: -");
         SetText(playerSlot1Text, GetSlotText(0));
         SetText(playerSlot2Text, GetSlotText(1));
         SetText(playerSlot3Text, GetSlotText(2));

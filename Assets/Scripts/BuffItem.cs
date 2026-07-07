@@ -5,7 +5,7 @@ public class BuffItem : NetworkBehaviour
 {
     public enum BuffType
     {
-        Shield,
+        Health,
         Range,
         Speed,
         Placement
@@ -14,8 +14,7 @@ public class BuffItem : NetworkBehaviour
     [Networked]
     public BuffType buffType { get; set; }
 
-    public float speedBuffMultiplier = 1.5f;
-    public float speedBuffDuration = 15f;
+    public float speedBuffMultiplier = 1.1f;
     public Vector3 visualScale = new Vector3(0.6f, 0.6f, 0.6f);
 
     public override void Spawned()
@@ -36,9 +35,9 @@ public class BuffItem : NetworkBehaviour
         {
             switch (buffType)
             {
-                case BuffType.Shield:
-                    renderer.material.color = Color.blue;
-                    gameObject.name = "Shield Buff";
+                case BuffType.Health:
+                    renderer.material.color = new Color(1f, 0.2f, 0.55f);
+                    gameObject.name = "Health Buff";
                     break;
                 case BuffType.Range:
                     renderer.material.color = Color.red;
@@ -90,19 +89,18 @@ public class BuffItem : NetworkBehaviour
     {
         switch (buffType)
         {
-            case BuffType.Shield:
+            case BuffType.Health:
                 PlayerHealth health = player.GetComponent<PlayerHealth>();
                 if (health != null)
                 {
-                    health.hasShield = true;
-                    Debug.Log("[Buff] Shield buff picked up locally!");
+                    health.IncreaseHealth();
                 }
                 break;
             case BuffType.Range:
                 player.IncreaseBombRange();
                 break;
             case BuffType.Speed:
-                player.ApplySpeedBuff(speedBuffMultiplier, speedBuffDuration);
+                player.IncreasePermanentSpeed(speedBuffMultiplier);
                 break;
             case BuffType.Placement:
                 player.IncreaseMaxActiveBombs();
@@ -114,19 +112,18 @@ public class BuffItem : NetworkBehaviour
     {
         switch (buffType)
         {
-            case BuffType.Shield:
+            case BuffType.Health:
                 OnlinePlayerHealth health = player.GetComponent<OnlinePlayerHealth>();
                 if (health != null)
                 {
-                    health.HasShield = true;
-                    Debug.Log("[Buff] Shield buff picked up online!");
+                    health.IncreaseHealth();
                 }
                 break;
             case BuffType.Range:
                 player.IncreaseBombRange();
                 break;
             case BuffType.Speed:
-                player.ApplySpeedBuff(speedBuffMultiplier, speedBuffDuration);
+                player.IncreasePermanentSpeed(speedBuffMultiplier);
                 break;
             case BuffType.Placement:
                 player.IncreaseMaxActiveBombs();

@@ -165,5 +165,4 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BuffItem
   _buffType: 0
-  speedBuffMultiplier: 1.5
-  speedBuffDuration: 15
+  speedBuffMultiplier: 1.1

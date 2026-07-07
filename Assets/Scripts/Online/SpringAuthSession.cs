@@ -7,14 +7,16 @@ public static class SpringAuthSession
     private const string EmailKey = "bombros_spring_auth_email";
     private const string RoleKey = "bombros_spring_auth_role";
     private const string ProfileJsonKey = "bombros_spring_auth_profile";
+    private const string GuestKey = "bombros_guest_session";
 
     public static string Token { get; private set; } = string.Empty;
     public static string Username { get; private set; } = string.Empty;
     public static string Email { get; private set; } = string.Empty;
     public static string Role { get; private set; } = string.Empty;
     public static SpringAuthProfileResponse Profile { get; private set; }
+    public static bool IsGuest { get; private set; }
 
-    public static bool IsSignedIn => !string.IsNullOrWhiteSpace(Token);
+    public static bool IsSignedIn => IsGuest || !string.IsNullOrWhiteSpace(Token);
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void Bootstrap()
@@ -28,9 +30,15 @@ public static class SpringAuthSession
         Username = PlayerPrefs.GetString(UsernameKey, string.Empty);
         Email = PlayerPrefs.GetString(EmailKey, string.Empty);
         Role = PlayerPrefs.GetString(RoleKey, string.Empty);
+        IsGuest = PlayerPrefs.GetInt(GuestKey, 0) == 1;
 
         string profileJson = PlayerPrefs.GetString(ProfileJsonKey, string.Empty);
         Profile = string.IsNullOrWhiteSpace(profileJson) ? null : JsonUtility.FromJson<SpringAuthProfileResponse>(profileJson);
+
+        if (IsGuest && string.IsNullOrWhiteSpace(Username))
+        {
+            Clear();
+        }
     }
 
     public static void SetSession(SpringAuthResponse authResponse, SpringAuthProfileResponse profileResponse = null)
@@ -44,6 +52,7 @@ public static class SpringAuthSession
         Username = authResponse.username != null ? authResponse.username : string.Empty;
         Email = authResponse.email != null ? authResponse.email : string.Empty;
         Role = authResponse.role != null ? authResponse.role : string.Empty;
+        IsGuest = false;
 
         if (profileResponse != null)
         {
@@ -57,6 +66,7 @@ public static class SpringAuthSession
         PlayerPrefs.SetString(UsernameKey, Username);
         PlayerPrefs.SetString(EmailKey, Email);
         PlayerPrefs.SetString(RoleKey, Role);
+        PlayerPrefs.DeleteKey(GuestKey);
 
         if (Profile != null)
         {
@@ -64,6 +74,25 @@ public static class SpringAuthSession
         }
 
         PlayerPrefs.Save();
+    }
+
+    public static string StartGuestSession()
+    {
+        Token = string.Empty;
+        Username = "Guest-" + System.Guid.NewGuid().ToString("N").Substring(0, 6).ToUpperInvariant();
+        Email = string.Empty;
+        Role = "GUEST";
+        Profile = null;
+        IsGuest = true;
+
+        PlayerPrefs.DeleteKey(TokenKey);
+        PlayerPrefs.SetString(UsernameKey, Username);
+        PlayerPrefs.DeleteKey(EmailKey);
+        PlayerPrefs.SetString(RoleKey, Role);
+        PlayerPrefs.DeleteKey(ProfileJsonKey);
+        PlayerPrefs.SetInt(GuestKey, 1);
+        PlayerPrefs.Save();
+        return Username;
     }
 
     public static void SetProfile(SpringAuthProfileResponse profileResponse)
@@ -92,17 +121,19 @@ public static class SpringAuthSession
         Email = string.Empty;
         Role = string.Empty;
         Profile = null;
+        IsGuest = false;
 
         PlayerPrefs.DeleteKey(TokenKey);
         PlayerPrefs.DeleteKey(UsernameKey);
         PlayerPrefs.DeleteKey(EmailKey);
         PlayerPrefs.DeleteKey(RoleKey);
         PlayerPrefs.DeleteKey(ProfileJsonKey);
+        PlayerPrefs.DeleteKey(GuestKey);
         PlayerPrefs.Save();
     }
 
     public static string BuildAuthorizationHeader()
     {
-        return IsSignedIn ? "Bearer " + Token : string.Empty;
+        return !string.IsNullOrWhiteSpace(Token) ? "Bearer " + Token : string.Empty;
     }
 }

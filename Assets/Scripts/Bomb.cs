@@ -9,6 +9,7 @@ public class Bomb : MonoBehaviour
     private Collider bombCollider;
     private Collider ownerCollider;
     private bool ownerCanPassThrough = true;
+    private bool hasExploded;
 
     void Start()
     {
@@ -18,6 +19,11 @@ public class Bomb : MonoBehaviour
         {
             body.useGravity = false;
             body.isKinematic = true;
+        }
+
+        if (ownerCollider != null && bombCollider != null)
+        {
+            Physics.IgnoreCollision(bombCollider, ownerCollider, true);
         }
 
         transform.position = GridUtility.GetNearestCellCenter(transform.position);
@@ -57,6 +63,14 @@ public class Bomb : MonoBehaviour
 
     void Explode()
     {
+        if (hasExploded)
+        {
+            return;
+        }
+
+        hasExploded = true;
+        CancelInvoke(nameof(Explode));
+
         GridUtility.TryWorldToCell(transform.position, out int bombCellX, out int bombCellZ);
         ProcessExplosionCell(bombCellX, bombCellZ);
 
@@ -98,6 +112,7 @@ public class Bomb : MonoBehaviour
         Vector3 worldPos = GridUtility.GetCellCenter(cellX, cellZ);
         SpawnExplosion(worldPos);
         DamagePlayersAtCell(cellX, cellZ);
+        TriggerBombAtCell(cellX, cellZ);
 
         if (cellType == CellType.DestructibleWall)
         {
@@ -116,6 +131,25 @@ public class Bomb : MonoBehaviour
         }
 
         return true;
+    }
+
+    void TriggerBombAtCell(int cellX, int cellZ)
+    {
+        Bomb[] bombs = FindObjectsByType<Bomb>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < bombs.Length; i++)
+        {
+            Bomb otherBomb = bombs[i];
+            if (otherBomb == null || otherBomb == this || otherBomb.hasExploded)
+            {
+                continue;
+            }
+
+            GridUtility.TryWorldToCell(otherBomb.transform.position, out int bombCellX, out int bombCellZ);
+            if (bombCellX == cellX && bombCellZ == cellZ)
+            {
+                otherBomb.Explode();
+            }
+        }
     }
 
     void DamagePlayersAtCell(int cellX, int cellZ)

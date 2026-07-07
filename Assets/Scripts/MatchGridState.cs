@@ -67,7 +67,7 @@ public static class MatchGridState
     // Consolidated Buff determination logic
     public static bool TryDetermineBuffType(int cellX, int cellZ, out BuffItem.BuffType buffType)
     {
-        buffType = BuffItem.BuffType.Shield; // default fallback
+        buffType = BuffItem.BuffType.Health; // default fallback
 
         float roll = Random.value;
 
@@ -110,11 +110,11 @@ public static class MatchGridState
             return true;
         }
 
-        // 4. Check Shield Buff (10% spawn rate, unlimited)
+        // 4. Check Health Buff (10% spawn rate, unlimited)
         // Segment (0.65, 0.75]
         if (roll > 0.65f && roll <= 0.75f)
         {
-            buffType = BuffItem.BuffType.Shield;
+            buffType = BuffItem.BuffType.Health;
             return true;
         }
 

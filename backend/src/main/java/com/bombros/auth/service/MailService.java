@@ -20,8 +20,12 @@ public class MailService {
         this.mailSender = mailSender;
     }
 
-    public void sendRegistrationSuccessEmail(String to, String username) {
-        send(to, "Bombros registration successful", "Welcome " + username + ", your account was created successfully.");
+    public boolean sendRegistrationSuccessEmail(String to, String username) {
+        return send(
+            to,
+            "Bombros registration successful",
+            "Welcome " + username + ", your account was created successfully."
+        );
     }
 
     public boolean sendPasswordResetOtpEmail(String to, String username, String otp) {

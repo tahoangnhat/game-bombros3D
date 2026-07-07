@@ -16,6 +16,8 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 {
     private const string ReadyKey = "ready";
     private const string DisplayNameKey = "displayName";
+    private const string ClientInstanceKey = "clientInstanceId";
+    private const string MatchStartKey = "matchStart";
 
     public static OnlineLobbyManager Instance { get; private set; }
 
@@ -47,6 +49,8 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     public float otpResendCooldownSeconds = 60f;
 
     private Lobby currentLobby;
+    private string currentLobbyPlayerId = string.Empty;
+    private readonly string localClientInstanceId = System.Guid.NewGuid().ToString("N");
     private NetworkRunner runner;
     private NetworkSceneManagerDefault sceneManager;
     private bool servicesReady;
@@ -58,6 +62,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     private bool gameSceneLoaded;
     private Coroutine matchSpawnCoroutine;
     private bool isLobbyConnectionInProgress;
+    private bool isFusionRoleTransitionInProgress;
+    private bool isConnectingToMatch;
+    private bool isStoppingFusionForLobby;
+    private bool isReturningToLobby;
     private float lobbyRefreshGraceUntil = -1f;
     private float lastOtpRequestTime = -999f;
     private string pendingOtpEmail = string.Empty;
@@ -83,7 +91,9 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     public bool CanUseLobbyActions => servicesReady && IsSignedIn && !IsNetworkSessionActive();
     public bool IsMatchActive => gameSceneLoaded;
 
-    public bool CanToggleReady => servicesReady && currentLobby != null && !string.IsNullOrEmpty(GetPlayerIdSafe());
+    public bool CanToggleReady => servicesReady
+        && currentLobby != null
+        && !string.IsNullOrEmpty(GetCurrentLobbyPlayerId());
 
     public bool CanStartGame
     {
@@ -134,6 +144,60 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         return auth.PlayerId;
     }
 
+    private string GetCurrentLobbyPlayerId()
+    {
+        if (!string.IsNullOrEmpty(currentLobbyPlayerId))
+        {
+            return currentLobbyPlayerId;
+        }
+
+        CaptureCurrentLobbyPlayerId();
+        return currentLobbyPlayerId;
+    }
+
+    private void CaptureCurrentLobbyPlayerId()
+    {
+        if (currentLobby == null || currentLobby.Players == null)
+        {
+            currentLobbyPlayerId = string.Empty;
+            return;
+        }
+
+        for (int i = 0; i < currentLobby.Players.Count; i++)
+        {
+            Player player = currentLobby.Players[i];
+            if (player?.Data == null
+                || !player.Data.TryGetValue(ClientInstanceKey, out PlayerDataObject instanceData)
+                || instanceData == null
+                || instanceData.Value != localClientInstanceId)
+            {
+                continue;
+            }
+
+            currentLobbyPlayerId = player.Id;
+            return;
+        }
+
+        string authenticatedPlayerId = GetPlayerIdSafe();
+        for (int i = 0; i < currentLobby.Players.Count; i++)
+        {
+            Player player = currentLobby.Players[i];
+            if (player != null && player.Id == authenticatedPlayerId)
+            {
+                currentLobbyPlayerId = player.Id;
+                return;
+            }
+        }
+
+        if (isHost && !string.IsNullOrEmpty(currentLobby.HostId))
+        {
+            currentLobbyPlayerId = currentLobby.HostId;
+            return;
+        }
+
+        currentLobbyPlayerId = string.Empty;
+    }
+
     private void OnEnable()
     {
         SceneManager.sceneLoaded += OnSceneLoaded;
@@ -148,6 +212,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (scene.name == lobbySceneName)
         {
+            OnlineScenePresentation.FinalizeLobbySceneTransition(lobbySceneName, gameSceneName);
             // Tự động reset trạng thái sẵn sàng của Client khi quay trở lại sảnh
             if (currentLobby != null && !isHost)
             {
@@ -240,22 +305,20 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     public string GetLobbyPlayerSlotText(int slotIndex)
     {
-        int displaySlot = slotIndex + 1;
-
         if (currentLobby == null || currentLobby.Players == null || slotIndex < 0 || slotIndex >= maxPlayers)
         {
-            return $"Slot {displaySlot}: Empty";
+            return "Empty";
         }
 
         if (slotIndex >= currentLobby.Players.Count)
         {
-            return $"Slot {displaySlot}: Empty";
+            return "Empty";
         }
 
         Player player = currentLobby.Players[slotIndex];
         if (player == null)
         {
-            return $"Slot {displaySlot}: Empty";
+            return "Empty";
         }
 
         string name = GetPlayerDisplayName(player);
@@ -276,7 +339,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             status = "[Not Ready]";
         }
 
-        return $"Slot {displaySlot}: {name}\n{status}";
+        return $"{name} {status}";
     }
 
     public void CreateLobbyAndHost()
@@ -297,6 +360,12 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     public void Login(string username, string password)
     {
         _ = LoginAsync(username, password);
+    }
+
+    public void LoginAsGuest()
+    {
+        string guestName = SpringAuthSession.StartGuestSession();
+        statusMessage = $"Logged in as {guestName}";
     }
 
     public void RequestPasswordResetOtp(string email)
@@ -511,7 +580,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         if (TryGetAuthService(out IAuthenticationService auth) && auth.IsSignedIn)
         {
-            auth.SignOut();
+            auth.SignOut(clearCredentials: true);
         }
 
         statusMessage = "Logged out";
@@ -649,33 +718,13 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                 maxPlayers,
                 new CreateLobbyOptions
                 {
-                    Player = BuildLobbyPlayer(true)
+                    Player = BuildLobbyPlayer(true),
+                    Data = BuildMatchStartData(false)
                 });
+            CaptureCurrentLobbyPlayerId();
             isHost = true;
             await SendHeartbeatAsync();
             await SetLocalReadyAsync(true);
-
-            statusMessage = "Starting Fusion host session...";
-            if (!await StartFusionSessionAsync(GameMode.Host, currentLobby.LobbyCode))
-            {
-                string lobbyId = currentLobby.Id;
-                currentLobby = null;
-                isHost = false;
-
-                if (!string.IsNullOrWhiteSpace(lobbyId))
-                {
-                    try
-                    {
-                        await LobbyService.Instance.DeleteLobbyAsync(lobbyId);
-                    }
-                    catch (System.Exception cleanupEx)
-                    {
-                        Debug.LogWarning($"Could not delete lobby after Fusion host failure: {cleanupEx.Message}");
-                    }
-                }
-
-                return;
-            }
 
             statusMessage = $"Lobby created. Code: {currentLobby.LobbyCode}";
             MarkLobbyRefreshGracePeriod();
@@ -732,14 +781,9 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                 return;
             }
 
-            statusMessage = "Starting Fusion client session...";
-            if (!await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode))
-            {
-                return;
-            }
-
-            isHost = false;
-            await SetLocalReadyAsync(false);
+            CaptureCurrentLobbyPlayerId();
+            isHost = currentLobby.HostId == GetCurrentLobbyPlayerId();
+            await SetLocalReadyAsync(isHost);
 
             if (currentLobby == null)
             {
@@ -1053,15 +1097,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             {
                 Player = BuildLobbyPlayer(false)
             });
+            CaptureCurrentLobbyPlayerId();
 
-            statusMessage = "Starting Fusion client session...";
-            if (!await StartFusionSessionAsync(GameMode.Client, currentLobby.LobbyCode))
-            {
-                return;
-            }
-
-            isHost = false;
-            await SetLocalReadyAsync(false);
+            isHost = currentLobby.HostId == GetCurrentLobbyPlayerId();
+            await SetLocalReadyAsync(isHost);
             statusMessage = $"Quick joined lobby {currentLobby.LobbyCode}";
             MarkLobbyRefreshGracePeriod();
         }
@@ -1102,25 +1141,55 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        if (runner == null || !runner.IsRunning)
-        {
-            statusMessage = "Network session is not running";
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(gameSceneName))
         {
             statusMessage = "Game scene name is empty";
             return;
         }
 
-        OnlineSessionState.IsOnlineSession = true;
         isLoadingGame = true;
         gameSceneLoaded = false;
+        statusMessage = "Starting Fusion host session...";
+
+        if (!await StartFusionSessionAsync(GameMode.Host, currentLobby.LobbyCode))
+        {
+            isLoadingGame = false;
+            return;
+        }
+
+        currentLobby = await LobbyService.Instance.UpdateLobbyAsync(
+            currentLobby.Id,
+            new UpdateLobbyOptions { Data = BuildMatchStartData(true) });
+
+        statusMessage = "Waiting for players to connect...";
+        float connectDeadline = Time.realtimeSinceStartup + 15f;
+        while (Time.realtimeSinceStartup < connectDeadline
+            && CountActiveFusionPlayers() < playerCount)
+        {
+            await Task.Delay(200);
+        }
+
+        OnlineSessionState.IsOnlineSession = true;
         statusMessage = $"Starting {gameSceneName}...";
 
         // Multiple peer mode (ParrelSync / Fusion PeerMode.Multiple) does not support LocalPhysicsMode.Physics3D.
         await runner.LoadScene(gameSceneName, LoadSceneMode.Single, LocalPhysicsMode.None, true);
+    }
+
+    private int CountActiveFusionPlayers()
+    {
+        if (runner == null || !runner.IsRunning)
+        {
+            return 0;
+        }
+
+        int count = 0;
+        foreach (PlayerRef player in runner.ActivePlayers)
+        {
+            count++;
+        }
+
+        return count;
     }
 
     public void ReturnToLobby()
@@ -1130,32 +1199,76 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task ReturnToLobbyAsync()
     {
-        if (!isHost || runner == null || !runner.IsRunning)
+        if (isReturningToLobby || !isHost || runner == null || !runner.IsRunning)
         {
             return;
         }
 
+        isReturningToLobby = true;
         OnlineSessionState.IsOnlineSession = false;
         isLoadingGame = false;
         gameSceneLoaded = false;
         statusMessage = $"Returning to {lobbySceneName}...";
 
         await runner.LoadScene(lobbySceneName, LoadSceneMode.Single, LocalPhysicsMode.None, true);
+
+        if (currentLobby != null)
+        {
+            currentLobby = await LobbyService.Instance.UpdateLobbyAsync(
+                currentLobby.Id,
+                new UpdateLobbyOptions { Data = BuildMatchStartData(false) });
+        }
+
+        // Clients close their runners after their lobby scene finishes loading.
+        // Wait for them to leave before the host closes the room.
+        float disconnectDeadline = Time.realtimeSinceStartup + 5f;
+        while (CountActiveFusionPlayers() > 1
+            && Time.realtimeSinceStartup < disconnectDeadline)
+        {
+            await Task.Delay(100);
+        }
+        Debug.Log($"[Fusion Return] Host closing runner with {CountActiveFusionPlayers()} active player(s).");
+        await ShutdownAndDisposeRunnerAsync();
+        await LoadLobbySceneLocallyAsync();
+        statusMessage = "Returned to lobby";
+        isReturningToLobby = false;
     }
 
     private async Task LeaveSessionAsync()
     {
+        if (isLobbyConnectionInProgress)
+        {
+            return;
+        }
+
+        isLobbyConnectionInProgress = true;
         try
         {
             if (currentLobby != null)
             {
                 if (isHost)
                 {
-                    await LobbyService.Instance.DeleteLobbyAsync(currentLobby.Id);
+                    Player nextHost = FindNextLobbyHost();
+                    if (nextHost != null)
+                    {
+                        currentLobby = await LobbyService.Instance.UpdateLobbyAsync(
+                            currentLobby.Id,
+                            new UpdateLobbyOptions { HostId = nextHost.Id });
+
+                        string playerId = GetCurrentLobbyPlayerId();
+                        if (!string.IsNullOrEmpty(playerId))
+                        {
+                            await LobbyService.Instance.RemovePlayerAsync(currentLobby.Id, playerId);
+                        }
+                    }
+                    else
+                    {
+                        await LobbyService.Instance.DeleteLobbyAsync(currentLobby.Id);
+                    }
                 }
                 else
                 {
-                    string playerId = GetPlayerIdSafe();
+                    string playerId = GetCurrentLobbyPlayerId();
                     if (!string.IsNullOrEmpty(playerId))
                     {
                         await LobbyService.Instance.RemovePlayerAsync(currentLobby.Id, playerId);
@@ -1171,6 +1284,28 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         await ShutdownAndDisposeRunnerAsync();
 
         ClearLobbySessionState("Left session");
+    }
+
+    private Player FindNextLobbyHost()
+    {
+        string localPlayerId = GetCurrentLobbyPlayerId();
+        if (currentLobby == null || currentLobby.Players == null)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < currentLobby.Players.Count; i++)
+        {
+            Player player = currentLobby.Players[i];
+            if (player != null
+                && !string.IsNullOrEmpty(player.Id)
+                && player.Id != localPlayerId)
+            {
+                return player;
+            }
+        }
+
+        return null;
     }
 
     private async Task LeaveSessionAndGoToMainMenuAsync(string mainMenuSceneName)
@@ -1229,8 +1364,42 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         try
         {
+            string previousHostId = currentLobby.HostId;
             currentLobby = await LobbyService.Instance.GetLobbyAsync(currentLobby.Id);
+            CaptureCurrentLobbyPlayerId();
             localReady = IsLocalPlayerReady(currentLobby);
+
+            string localPlayerId = GetCurrentLobbyPlayerId();
+            bool localPlayerIsHost = !string.IsNullOrEmpty(localPlayerId)
+                && localPlayerId == currentLobby.HostId;
+            isHost = localPlayerIsHost;
+
+            if (previousHostId != currentLobby.HostId)
+            {
+                statusMessage = localPlayerIsHost
+                    ? "You are now the lobby host."
+                    : "Lobby host changed.";
+
+                if (localPlayerIsHost && !localReady)
+                {
+                    await SetLocalReadyAsync(true);
+                }
+            }
+
+            if (!localPlayerIsHost
+                && IsMatchStartRequested(currentLobby)
+                && (runner == null || !runner.IsRunning))
+            {
+                _ = ConnectToStartedMatchAsync();
+            }
+            else if (!localPlayerIsHost
+                && !IsMatchStartRequested(currentLobby)
+                && runner != null
+                && runner.IsRunning
+                && SceneManager.GetActiveScene().name == lobbySceneName)
+            {
+                _ = StopFusionForLobbyAsync();
+            }
         }
         catch (LobbyServiceException ex)
         {
@@ -1256,14 +1425,111 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         lobbyRefreshGraceUntil = Time.unscaledTime + LobbyRefreshGraceSeconds;
     }
 
+    private async Task ConnectToStartedMatchAsync()
+    {
+        if (isConnectingToMatch
+            || isLobbyConnectionInProgress
+            || currentLobby == null
+            || gameSceneLoaded)
+        {
+            return;
+        }
+
+        isConnectingToMatch = true;
+        try
+        {
+            isLoadingGame = true;
+            statusMessage = "Connecting to the match...";
+            string lobbyCode = currentLobby.LobbyCode;
+            if (await StartFusionSessionAsync(GameMode.Client, lobbyCode))
+            {
+                statusMessage = "Connected. Waiting for host to load the game...";
+            }
+            else
+            {
+                isLoadingGame = false;
+            }
+        }
+        finally
+        {
+            isConnectingToMatch = false;
+        }
+    }
+
+    private async Task StopFusionForLobbyAsync()
+    {
+        if (isStoppingFusionForLobby)
+        {
+            return;
+        }
+
+        isStoppingFusionForLobby = true;
+        try
+        {
+            OnlineSessionState.IsOnlineSession = false;
+            await ShutdownAndDisposeRunnerAsync();
+            await LoadLobbySceneLocallyAsync();
+        }
+        finally
+        {
+            isStoppingFusionForLobby = false;
+        }
+    }
+
+    private async Task LoadLobbySceneLocallyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(lobbySceneName))
+        {
+            return;
+        }
+
+        // Fusion unloads its managed scene when the runner shuts down and leaves
+        // FusionSceneManager_TempEmptyScene active. Load a normal Unity scene
+        // after shutdown so the lobby keeps its camera, canvas, and EventSystem.
+        await Task.Yield();
+
+        Scene activeScene = SceneManager.GetActiveScene();
+        bool hasLocalLobbyScene = activeScene.IsValid()
+            && activeScene.isLoaded
+            && string.Equals(
+                activeScene.name,
+                lobbySceneName,
+                System.StringComparison.Ordinal);
+
+        if (!hasLocalLobbyScene)
+        {
+            AsyncOperation loadOperation =
+                SceneManager.LoadSceneAsync(lobbySceneName, LoadSceneMode.Single);
+            if (loadOperation == null)
+            {
+                Debug.LogError($"[Fusion Return] Could not load {lobbySceneName} locally.");
+                return;
+            }
+
+            while (!loadOperation.isDone)
+            {
+                await Task.Yield();
+            }
+        }
+
+        OnlineScenePresentation.FinalizeLobbySceneTransition(lobbySceneName, gameSceneName);
+        Debug.Log($"[Fusion Return] Local {lobbySceneName} is ready.");
+    }
+
     private void ClearLobbySessionState(string message)
     {
         currentLobby = null;
+        currentLobbyPlayerId = string.Empty;
         isHost = false;
         localReady = false;
         isLoadingGame = false;
         gameSceneLoaded = false;
         lobbyRefreshGraceUntil = -1f;
+        isLobbyConnectionInProgress = false;
+        isFusionRoleTransitionInProgress = false;
+        isConnectingToMatch = false;
+        isStoppingFusionForLobby = false;
+        isReturningToLobby = false;
         OnlineSessionState.IsOnlineSession = false;
         statusMessage = message;
 
@@ -1297,7 +1563,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        string playerId = GetPlayerIdSafe();
+        string playerId = GetCurrentLobbyPlayerId();
         if (currentLobby == null || string.IsNullOrEmpty(playerId))
         {
             return;
@@ -1327,9 +1593,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private Player BuildLobbyPlayer(bool ready)
     {
-        string playerId = GetPlayerIdSafe();
         return new Player(
-            id: string.IsNullOrWhiteSpace(playerId) ? null : playerId,
+            // Lobby resolves this from the access token. A cached explicit ID can
+            // mismatch immediately after switching Authentication profiles.
+            id: null,
             data: BuildLobbyPlayerData(ready));
     }
 
@@ -1338,8 +1605,29 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         return new Dictionary<string, PlayerDataObject>
         {
             { ReadyKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, ready ? "1" : "0") },
-            { DisplayNameKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, BuildLocalDisplayName()) }
+            { DisplayNameKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, BuildLocalDisplayName()) },
+            { ClientInstanceKey, new PlayerDataObject(PlayerDataObject.VisibilityOptions.Member, localClientInstanceId) }
         };
+    }
+
+    private static Dictionary<string, DataObject> BuildMatchStartData(bool start)
+    {
+        return new Dictionary<string, DataObject>
+        {
+            {
+                MatchStartKey,
+                new DataObject(DataObject.VisibilityOptions.Member, start ? "1" : "0")
+            }
+        };
+    }
+
+    private static bool IsMatchStartRequested(Lobby lobby)
+    {
+        return lobby != null
+            && lobby.Data != null
+            && lobby.Data.TryGetValue(MatchStartKey, out DataObject startData)
+            && startData != null
+            && startData.Value == "1";
     }
 
     private bool AreAllPlayersReady()
@@ -1351,7 +1639,13 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         for (int i = 0; i < currentLobby.Players.Count; i++)
         {
-            if (!IsPlayerReady(currentLobby.Players[i]))
+            Player player = currentLobby.Players[i];
+            if (player != null && player.Id == currentLobby.HostId)
+            {
+                continue;
+            }
+
+            if (!IsPlayerReady(player))
             {
                 return false;
             }
@@ -1362,7 +1656,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private bool IsLocalPlayerReady(Lobby lobby)
     {
-        string localPlayerId = GetPlayerIdSafe();
+        string localPlayerId = GetCurrentLobbyPlayerId();
         if (lobby == null || lobby.Players == null || string.IsNullOrEmpty(localPlayerId))
         {
             return false;
@@ -1646,12 +1940,17 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             return false;
         }
 
-        int maxAttempts = gameMode == GameMode.Client ? FusionJoinRetryAttempts : 1;
+        bool canActAsJoiningPeer = gameMode == GameMode.Client
+            || gameMode == GameMode.AutoHostOrClient;
+        int maxAttempts = canActAsJoiningPeer ? FusionJoinRetryAttempts : 1;
+        GameMode attemptGameMode = gameMode;
         for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
             if (attempt > 0)
             {
-                statusMessage = $"Waiting for host Fusion session ({attempt + 1}/{maxAttempts})...";
+                statusMessage = attemptGameMode == GameMode.Host
+                    ? $"Taking over as Fusion host ({attempt + 1}/{maxAttempts})..."
+                    : $"Waiting for host Fusion session ({attempt + 1}/{maxAttempts})...";
                 await Task.Delay(FusionJoinRetryDelayMs);
             }
 
@@ -1667,7 +1966,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
             StartGameResult result = await runner.StartGame(new StartGameArgs
             {
-                GameMode = gameMode,
+                GameMode = attemptGameMode,
                 SessionName = normalizedSessionName,
                 SceneManager = sceneManager,
                 PlayerCount = maxPlayers
@@ -1676,12 +1975,40 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             if (result.Ok)
             {
                 OnlineSessionState.IsOnlineSession = true;
+                if (attemptGameMode == GameMode.Host
+                    || (attemptGameMode == GameMode.AutoHostOrClient && runner.IsServer))
+                {
+                    isHost = true;
+                }
+
                 SetupNetworkPrefabs();
                 return true;
             }
 
-            bool canRetry = gameMode == GameMode.Client
-                && result.ShutdownReason == ShutdownReason.GameNotFound
+            bool fusionRoomMissing = result.ShutdownReason == ShutdownReason.GameNotFound;
+            if (gameMode == GameMode.Client && fusionRoomMissing)
+            {
+                bool localPlayerBecameLobbyHost = await RefreshLocalLobbyHostRoleAsync();
+                attemptGameMode = localPlayerBecameLobbyHost ? GameMode.Host : GameMode.Client;
+            }
+            else if (gameMode == GameMode.Client
+                && attemptGameMode == GameMode.Host
+                && (result.ShutdownReason == ShutdownReason.GameIdAlreadyExists
+                    || result.ShutdownReason == ShutdownReason.ServerInRoom))
+            {
+                // Another peer completed Fusion migration first. Join that peer as a client.
+                attemptGameMode = GameMode.Client;
+            }
+
+            bool transientMigrationFailure = fusionRoomMissing
+                || result.ShutdownReason == ShutdownReason.GameIdAlreadyExists
+                || result.ShutdownReason == ShutdownReason.ServerInRoom
+                || result.ShutdownReason == ShutdownReason.DisconnectedByPluginLogic
+                || result.ShutdownReason == ShutdownReason.ConnectionTimeout
+                || result.ShutdownReason == ShutdownReason.OperationTimeout
+                || result.ShutdownReason == ShutdownReason.Error;
+            bool canRetry = canActAsJoiningPeer
+                && transientMigrationFailure
                 && attempt < maxAttempts - 1;
             if (canRetry)
             {
@@ -1689,12 +2016,39 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             }
 
             statusMessage = BuildFusionStartFailureMessage(gameMode, result);
-            Debug.LogError(result.ErrorMessage);
+            Debug.LogError(
+                $"Fusion start failed. Requested={gameMode}, Attempted={attemptGameMode}, " +
+                $"Reason={result.ShutdownReason}, Error={result.ErrorMessage}");
             return false;
         }
 
         statusMessage = "Fusion session failed: host room not found";
         return false;
+    }
+
+    private async Task<bool> RefreshLocalLobbyHostRoleAsync()
+    {
+        if (currentLobby == null
+            || string.IsNullOrWhiteSpace(currentLobby.Id)
+            || !await EnsureUnityAuthenticationAsync())
+        {
+            return false;
+        }
+
+        try
+        {
+            currentLobby = await LobbyService.Instance.GetLobbyAsync(currentLobby.Id);
+            CaptureCurrentLobbyPlayerId();
+            string localPlayerId = GetCurrentLobbyPlayerId();
+            isHost = !string.IsNullOrEmpty(localPlayerId)
+                && localPlayerId == currentLobby.HostId;
+            return isHost;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"Could not refresh lobby host during Fusion reconnect: {ex.Message}");
+            return false;
+        }
     }
 
     private async Task<bool> RecreateFusionRunnerAsync()
@@ -1806,11 +2160,11 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                     return auth.IsAuthorized;
                 }
 
-                auth.SignOut();
+                auth.SignOut(clearCredentials: true);
             }
             else if (auth.IsSignedIn)
             {
-                auth.SignOut();
+                auth.SignOut(clearCredentials: true);
             }
 
             auth.SwitchProfile(profile);
@@ -1915,6 +2269,12 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        if (gameSceneLoaded)
+        {
+            isReturningToLobby = true;
+            Debug.Log("[Fusion Return] Scene load started from an active match.");
+        }
+
         gameSceneLoaded = false;
 
         if (matchSpawnCoroutine != null)
@@ -1928,12 +2288,39 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             OnlineSessionState.IsOnlineSession = true;
         }
 
-        statusMessage = $"Loading {gameSceneName}...";
+        statusMessage = isReturningToLobby
+            ? $"Returning to {lobbySceneName}..."
+            : $"Loading {gameSceneName}...";
     }
 
     public void OnSceneLoadDone(NetworkRunner runner)
     {
-        if (runner == null || !OnlineScenePresentation.IsGameSceneLoaded(gameSceneName))
+        if (runner == null)
+        {
+            return;
+        }
+
+        if (isReturningToLobby
+            && OnlineScenePresentation.IsLobbySceneLoaded(lobbySceneName))
+        {
+            Debug.Log($"[Fusion Return] Lobby scene loaded. Server={runner.IsServer}.");
+            OnlineScenePresentation.FinalizeLobbySceneTransition(lobbySceneName, gameSceneName);
+            OnlineSessionState.IsOnlineSession = false;
+            isLoadingGame = false;
+            gameSceneLoaded = false;
+            statusMessage = "Returned to lobby";
+
+            bool shouldStopClientRunner = !runner.IsServer;
+            if (shouldStopClientRunner)
+            {
+                isReturningToLobby = false;
+                Debug.Log("[Fusion Return] Client is shutting down its runner.");
+                _ = StopFusionForLobbyAsync();
+            }
+            return;
+        }
+
+        if (!OnlineScenePresentation.IsGameSceneLoaded(gameSceneName))
         {
             return;
         }
@@ -1950,6 +2337,8 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             EnsureMatchResultPopup();
             gameSceneLoaded = true;
+            isLoadingGame = false;
+            isReturningToLobby = false;
             statusMessage = "Match started";
         }
     }
@@ -1976,6 +2365,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         EnsureMatchResultPopup();
         gameSceneLoaded = true;
         isLoadingGame = false;
+        isReturningToLobby = false;
         statusMessage = "Match started";
         matchSpawnCoroutine = null;
     }
@@ -2003,7 +2393,12 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
-    public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
+    public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken)
+    {
+        // Lobby recovery is coordinated through Unity Lobby HostId so only one
+        // peer can recreate the Fusion host. Do not start a second runner here.
+    }
+
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, System.ArraySegment<byte> data) { }
     public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
