@@ -22,6 +22,10 @@ public class OnlineMatchResultPopup : MonoBehaviour
     [Header("Refresh")]
     [SerializeField] private float checkInterval = 0.2f;
 
+    [Header("Return To Lobby")]
+    [SerializeField, Min(0f)] private float autoReturnDelay = 5f;
+    [SerializeField, Min(0f)] private float resultPopupDelay = 1f;
+
     [Header("Visual Customizations (Optional)")]
     [SerializeField] private Image panelBgImage;         
     [SerializeField] private Image statusIconImage;       
@@ -49,7 +53,10 @@ public class OnlineMatchResultPopup : MonoBehaviour
     private bool localWinShown;
     private bool drawShown;
     private bool spectatorEndShown;
+    private bool autoReturnScheduled;
     private Coroutine activeAnimationRoutine;
+    private Coroutine autoReturnRoutine;
+    private Coroutine pendingResultRoutine;
 
     private void Awake()
     {
@@ -176,7 +183,7 @@ public class OnlineMatchResultPopup : MonoBehaviour
         if (localPlayer != null && localPlayer.IsEliminated && !localLoseShown)
         {
             localLoseShown = true;
-            ShowPopup(
+            QueueResultPopup(
                 "You Lose",
                 "Continute Watching or Exit",
                 showContinue: true,
@@ -190,14 +197,30 @@ public class OnlineMatchResultPopup : MonoBehaviour
         }
 
         // 2. Người chơi thắng (You Win)
-        if (aliveCount == 1 && alivePlayer != null && alivePlayer.Object.HasInputAuthority && !localWinShown)
+        if (aliveCount == 1 && alivePlayer != null)
         {
-            localWinShown = true;
-            ShowPopup(
-                "You Win",
-                "You are the Winner",
-                showContinue: false,
-                MatchResultType.Win);
+            string winnerName = GetPlayerDisplayName(alivePlayer);
+
+            if (alivePlayer.Object.HasInputAuthority && !localWinShown)
+            {
+                localWinShown = true;
+                QueueResultPopup(
+                    "You Win",
+                    $"Winner: {winnerName}",
+                    showContinue: false,
+                    MatchResultType.Win);
+            }
+            else if (localLoseShown && !spectatorEndShown)
+            {
+                spectatorEndShown = true;
+                QueueResultPopup(
+                    "Match Finished",
+                    $"Winner: {winnerName}",
+                    showContinue: false,
+                    MatchResultType.Draw);
+            }
+
+            ScheduleReturnToLobby();
             return;
         }
 
@@ -206,11 +229,12 @@ public class OnlineMatchResultPopup : MonoBehaviour
         {
             drawShown = true;
             spectatorEndShown = true; // Trận đấu kết thúc hoàn toàn
-            ShowPopup(
+            QueueResultPopup(
                 "Tie",
                 "No survivors left",
                 showContinue: false,
                 MatchResultType.Draw);
+            ScheduleReturnToLobby();
             return;
         }
 
@@ -218,12 +242,87 @@ public class OnlineMatchResultPopup : MonoBehaviour
         if (localLoseShown && aliveCount == 1 && !spectatorEndShown)
         {
             spectatorEndShown = true;
-            ShowPopup(
+            QueueResultPopup(
                 "Match Finished",
                 "Winner has been decided!",
                 showContinue: false, // Trận đấu kết thúc, không xem tiếp nữa
                 MatchResultType.Draw); // Trực quan trung tính
         }
+    }
+
+    private void QueueResultPopup(
+        string title,
+        string message,
+        bool showContinue,
+        MatchResultType resultType)
+    {
+        if (pendingResultRoutine != null)
+        {
+            StopCoroutine(pendingResultRoutine);
+        }
+
+        pendingResultRoutine = StartCoroutine(
+            ShowResultAfterDelay(title, message, showContinue, resultType));
+    }
+
+    private IEnumerator ShowResultAfterDelay(
+        string title,
+        string message,
+        bool showContinue,
+        MatchResultType resultType)
+    {
+        yield return new WaitForSecondsRealtime(resultPopupDelay);
+        pendingResultRoutine = null;
+        ShowPopup(title, message, showContinue, resultType);
+    }
+
+    private void ScheduleReturnToLobby()
+    {
+        if (autoReturnScheduled)
+        {
+            return;
+        }
+
+        ResolveManager();
+        if (lobbyManager == null || !lobbyManager.IsHostLobby)
+        {
+            return;
+        }
+
+        autoReturnScheduled = true;
+        autoReturnRoutine = StartCoroutine(ReturnToLobbyAfterDelay());
+    }
+
+    private IEnumerator ReturnToLobbyAfterDelay()
+    {
+        yield return new WaitForSecondsRealtime(autoReturnDelay);
+
+        ResolveManager();
+        if (lobbyManager != null && lobbyManager.IsHostLobby)
+        {
+            lobbyManager.ReturnToLobby();
+        }
+
+        autoReturnRoutine = null;
+    }
+
+    private static string GetPlayerDisplayName(OnlinePlayerHealth player)
+    {
+        if (player == null)
+        {
+            return "Unknown";
+        }
+
+        OnlinePlayerController controller = player.GetComponent<OnlinePlayerController>();
+        string nickname = controller != null ? controller.Nickname.ToString() : string.Empty;
+        if (!string.IsNullOrWhiteSpace(nickname))
+        {
+            return nickname;
+        }
+
+        return player.Object != null
+            ? $"Player {player.Object.InputAuthority.PlayerId}"
+            : "Player";
     }
 
     private int GetExpectedPlayerCount()
@@ -302,17 +401,22 @@ public class OnlineMatchResultPopup : MonoBehaviour
 
         if (quitButton != null)
         {
+            quitButton.interactable = showContinue;
+            string quitLabel = showContinue
+                ? ((lobbyManager != null && lobbyManager.IsHostLobby) ? "Return" : "Exit")
+                : "Returning...";
+
             TMP_Text buttonText = quitButton.GetComponentInChildren<TMP_Text>();
             if (buttonText != null)
             {
-                buttonText.text = (lobbyManager != null && lobbyManager.IsHostLobby) ? "Return" : "Exit";
+                buttonText.text = quitLabel;
             }
             else
             {
                 Text legacyText = quitButton.GetComponentInChildren<Text>();
                 if (legacyText != null)
                 {
-                    legacyText.text = (lobbyManager != null && lobbyManager.IsHostLobby) ? "Return" : "Exit";
+                    legacyText.text = quitLabel;
                 }
             }
         }

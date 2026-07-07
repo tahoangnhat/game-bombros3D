@@ -1,6 +1,5 @@
 using Fusion;
 using UnityEngine;
-using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody))]
@@ -16,7 +15,6 @@ public class OnlinePlayerController : NetworkBehaviour
 
     [Header("Bomb")]
     public NetworkObject bombPrefab;
-    public float bombCooldown = 0.5f;
 
     [Header("Tile Highlight")]
     public Transform tileHighlight;
@@ -36,18 +34,16 @@ public class OnlinePlayerController : NetworkBehaviour
     private OnlinePlayerHealth health;
     private Vector3 inputDirection;
     private bool isGrounded;
-    private float lastBombTime = -10f;
     private List<NetworkObject> activeBombs = new List<NetworkObject>();
 
     // Buff networked properties
     [Networked] public int CurrentBombRange { get; set; }
     [Networked] public int MaxActiveBombs { get; set; }
     [Networked] public float CurrentMoveSpeed { get; set; }
-    [Networked] public float SpeedBuffProgress { get; set; }
+    [Networked] public float SpeedMultiplier { get; set; }
     [Networked] public int VisualIndex { get; set; }
     [Networked] public NetworkString<_32> Nickname { get; set; }
 
-    private Coroutine speedBuffCoroutine;
     private SkinnedMeshRenderer[] visualRenderers;
     private int appliedVisualIndex = -1;
 
@@ -68,6 +64,7 @@ public class OnlinePlayerController : NetworkBehaviour
         if (Object.HasInputAuthority)
         {
             OnlineSessionState.IsOnlineSession = true;
+            CameraFollow.FollowLocalPlayer(transform);
             
             string myName = "";
             if (OnlineLobbyManager.Instance != null)
@@ -90,9 +87,9 @@ public class OnlinePlayerController : NetworkBehaviour
         if (Object.HasStateAuthority)
         {
             CurrentBombRange = 1;
-            MaxActiveBombs = 2;
+            MaxActiveBombs = 1;
             CurrentMoveSpeed = moveSpeed;
-            SpeedBuffProgress = 0f;
+            SpeedMultiplier = 1f;
         }
 
         ApplyPlayerVisual();
@@ -129,10 +126,9 @@ public class OnlinePlayerController : NetworkBehaviour
                 inputDirection.Normalize();
             }
 
-            if (input.PlaceBomb && Object.HasStateAuthority && Runner.SimulationTime - lastBombTime >= bombCooldown)
+            if (input.PlaceBomb && Object.HasStateAuthority)
             {
                 PlaceBomb();
-                lastBombTime = Runner.SimulationTime;
             }
         }
         else
@@ -144,14 +140,16 @@ public class OnlinePlayerController : NetworkBehaviour
 
         float control = isGrounded ? 1f : airControl;
         float currentSpeed = CurrentMoveSpeed > 0f ? CurrentMoveSpeed : moveSpeed;
-        Vector3 moveStep = new Vector3(inputDirection.x, 0f, inputDirection.z) * (currentSpeed * control * Runner.DeltaTime);
+        // Input is converted to camera-relative world space by the local input reader.
+        Vector3 moveDirection = inputDirection;
+        moveDirection.y = 0f;
+        Vector3 moveStep = moveDirection * (currentSpeed * control * Runner.DeltaTime);
 
         if (!IsFinite(moveStep))
         {
             return;
         }
 
-        FaceMovementDirection();
         PlayerMovementUtility.TryMove(transform, bodyCollider, moveStep);
     }
 
@@ -169,18 +167,18 @@ public class OnlinePlayerController : NetworkBehaviour
             turnSpeed * Runner.DeltaTime);
     }
 
-    private void PlaceBomb()
+    private bool PlaceBomb()
     {
         if (IsEliminated())
         {
-            return;
+            return false;
         }
 
         // Clean up despawned / invalid bombs
         activeBombs.RemoveAll(bomb => bomb == null || !bomb.IsValid);
         if (activeBombs.Count >= MaxActiveBombs)
         {
-            return;
+            return false;
         }
 
         NetworkObject resolvedBombPrefab = bombPrefab;
@@ -191,13 +189,13 @@ public class OnlinePlayerController : NetworkBehaviour
 
         if (resolvedBombPrefab == null || Runner == null || !Object.HasStateAuthority)
         {
-            return;
+            return false;
         }
 
         GridUtility.TryWorldToCell(transform.position, out int cellX, out int cellZ);
         if (HasBombAtCell(cellX, cellZ))
         {
-            return;
+            return false;
         }
 
         Vector3 spawnPos = GridUtility.GetCellCenter(cellX, cellZ);
@@ -220,18 +218,45 @@ public class OnlinePlayerController : NetworkBehaviour
         if (spawnedBomb != null)
         {
             activeBombs.Add(spawnedBomb);
+            return true;
         }
+
+        return false;
     }
 
     private bool HasBombAtCell(int cellX, int cellZ)
     {
-        Vector3 center = GridUtility.GetCellCenter(cellX, cellZ);
-        float radius = GridUtility.GetCellSize() * 0.35f;
-        Collider[] hits = Physics.OverlapSphere(center, radius, ~0, QueryTriggerInteraction.Ignore);
-
-        for (int i = 0; i < hits.Length; i++)
+        for (int i = 0; i < activeBombs.Count; i++)
         {
-            if (hits[i].GetComponentInParent<OnlineBomb>() != null)
+            NetworkObject activeBomb = activeBombs[i];
+            if (activeBomb == null || !activeBomb.IsValid)
+            {
+                continue;
+            }
+
+            GridUtility.TryWorldToCell(
+                activeBomb.transform.position,
+                out int activeCellX,
+                out int activeCellZ);
+            if (activeCellX == cellX && activeCellZ == cellZ)
+            {
+                return true;
+            }
+        }
+
+        OnlineBomb[] bombs = FindObjectsByType<OnlineBomb>(FindObjectsInactive.Include);
+        for (int i = 0; i < bombs.Length; i++)
+        {
+            OnlineBomb bomb = bombs[i];
+            if (bomb == null
+                || bomb.Object == null
+                || !bomb.Object.IsValid)
+            {
+                continue;
+            }
+
+            GridUtility.TryWorldToCell(bomb.transform.position, out int bombCellX, out int bombCellZ);
+            if (bombCellX == cellX && bombCellZ == cellZ)
             {
                 return true;
             }
@@ -315,41 +340,24 @@ public class OnlinePlayerController : NetworkBehaviour
     public void IncreaseBombRange()
     {
         if (!Object.HasStateAuthority) return;
-        CurrentBombRange = Mathf.Min(5, CurrentBombRange + 1); // Max range 5 is x5
+        CurrentBombRange++;
         Debug.Log($"[Buff] Online player range increased to {CurrentBombRange}");
     }
 
     public void IncreaseMaxActiveBombs()
     {
         if (!Object.HasStateAuthority) return;
-        MaxActiveBombs = Mathf.Min(3, MaxActiveBombs + 1);
+        MaxActiveBombs++;
         Debug.Log($"[Buff] Online player max active bombs increased to {MaxActiveBombs}");
     }
 
-    public void ApplySpeedBuff(float multiplier, float duration)
+    public void IncreasePermanentSpeed(float multiplier)
     {
         if (!Object.HasStateAuthority) return;
 
-        if (speedBuffCoroutine != null)
-        {
-            StopCoroutine(speedBuffCoroutine);
-        }
-        speedBuffCoroutine = StartCoroutine(SpeedBuffRoutine(multiplier, duration));
-    }
-
-    private IEnumerator SpeedBuffRoutine(float multiplier, float duration)
-    {
-        CurrentMoveSpeed = moveSpeed * multiplier;
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            SpeedBuffProgress = Mathf.Clamp01(1f - (elapsed / duration));
-            yield return null;
-        }
-        CurrentMoveSpeed = moveSpeed;
-        SpeedBuffProgress = 0f;
-        speedBuffCoroutine = null;
+        SpeedMultiplier += Mathf.Max(0f, multiplier - 1f);
+        CurrentMoveSpeed = moveSpeed * SpeedMultiplier;
+        Debug.Log($"[Buff] Online speed increased permanently to x{SpeedMultiplier:0.##}");
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]

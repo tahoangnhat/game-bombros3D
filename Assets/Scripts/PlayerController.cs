@@ -1,6 +1,5 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody))]
@@ -12,7 +11,6 @@ public class PlayerController : MonoBehaviour
 
     [Header("Bomb")]
     public GameObject bombPrefab;
-    public float bombCooldown = 0.5f;
 
     [Header("Tile Highlight")]
     public Transform tileHighlight;
@@ -27,14 +25,13 @@ public class PlayerController : MonoBehaviour
     Collider bodyCollider;
     Vector3 inputDirection;
     bool isGrounded;
-    float lastBombTime = -10f;
     private List<Bomb> activeBombs = new List<Bomb>();
 
     // Buff fields
     private float baseMoveSpeed;
-    private int maxActiveBombs = 2;
+    private int maxActiveBombs = 1;
     private int currentBombRange = 1;
-    private Coroutine speedBuffCoroutine;
+    private float permanentSpeedMultiplier = 1f;
 
     void Awake()
     {
@@ -50,17 +47,24 @@ public class PlayerController : MonoBehaviour
         baseMoveSpeed = moveSpeed;
     }
 
+    void Start()
+    {
+        if (!OnlineSessionState.IsOnlineSession)
+        {
+            CameraFollow.FollowLocalPlayer(transform);
+        }
+    }
+
     void Update()
     {
         Vector2 moveInput = GetMoveInput();
-        inputDirection = new Vector3(moveInput.x, 0f, moveInput.y);
+        inputDirection = CameraFollow.GetCameraRelativeDirection(moveInput);
         if (inputDirection.sqrMagnitude > 1f) inputDirection.Normalize();
 
         // Place bomb with Space (no jump in this game)
-        if (CheckPlaceBomb() && Time.time - lastBombTime >= bombCooldown)
+        if (CheckPlaceBomb())
         {
             PlaceBomb();
-            lastBombTime = Time.time;
         }
 
         UpdateTileHighlight();
@@ -101,7 +105,7 @@ public class PlayerController : MonoBehaviour
         isGrounded = IsGrounded();
 
         float control = isGrounded ? 1f : airControl;
-        Vector3 moveStep = transform.TransformDirection(inputDirection) * (moveSpeed * control * Time.fixedDeltaTime);
+        Vector3 moveStep = inputDirection * (moveSpeed * control * Time.fixedDeltaTime);
         moveStep.y = 0f;
 
         if (!IsFinite(moveStep))
@@ -115,21 +119,21 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    void PlaceBomb()
+    bool PlaceBomb()
     {
-        if (bombPrefab == null) return;
+        if (bombPrefab == null) return false;
 
         // Clean up exploded bombs (null references)
         activeBombs.RemoveAll(bomb => bomb == null);
         if (activeBombs.Count >= maxActiveBombs)
         {
-            return;
+            return false;
         }
 
         GridUtility.TryWorldToCell(transform.position, out int cellX, out int cellZ);
         if (HasBombAtCell(cellX, cellZ))
         {
-            return;
+            return false;
         }
 
         Vector3 spawnPos = GridUtility.GetCellCenter(cellX, cellZ);
@@ -142,18 +146,44 @@ public class PlayerController : MonoBehaviour
             bomb.SetOwnerCollider(GetComponent<Collider>());
             bomb.explosionRange = currentBombRange;
             activeBombs.Add(bomb);
+            return true;
         }
+
+        Destroy(bombObject);
+        return false;
     }
 
     bool HasBombAtCell(int cellX, int cellZ)
     {
-        Vector3 center = GridUtility.GetCellCenter(cellX, cellZ);
-        float radius = GridUtility.GetCellSize() * 0.35f;
-        Collider[] hits = Physics.OverlapSphere(center, radius, ~0, QueryTriggerInteraction.Ignore);
-
-        for (int i = 0; i < hits.Length; i++)
+        for (int i = 0; i < activeBombs.Count; i++)
         {
-            if (hits[i].GetComponentInParent<Bomb>() != null)
+            Bomb activeBomb = activeBombs[i];
+            if (activeBomb == null)
+            {
+                continue;
+            }
+
+            GridUtility.TryWorldToCell(
+                activeBomb.transform.position,
+                out int activeCellX,
+                out int activeCellZ);
+            if (activeCellX == cellX && activeCellZ == cellZ)
+            {
+                return true;
+            }
+        }
+
+        Bomb[] bombs = FindObjectsByType<Bomb>(FindObjectsInactive.Include);
+        for (int i = 0; i < bombs.Length; i++)
+        {
+            Bomb bomb = bombs[i];
+            if (bomb == null)
+            {
+                continue;
+            }
+
+            GridUtility.TryWorldToCell(bomb.transform.position, out int bombCellX, out int bombCellZ);
+            if (bombCellX == cellX && bombCellZ == cellZ)
             {
                 return true;
             }
@@ -214,42 +244,25 @@ public class PlayerController : MonoBehaviour
 
     public int MaxActiveBombs => maxActiveBombs;
     public int CurrentBombRange => currentBombRange;
-    public float SpeedBuffProgress { get; private set; }
+    public float SpeedMultiplier => permanentSpeedMultiplier;
 
     // Buff helper methods
     public void IncreaseBombRange()
     {
-        currentBombRange = Mathf.Min(5, currentBombRange + 1); // Max range 5 is x5
+        currentBombRange++;
         Debug.Log($"[Buff] Local bomb range increased to {currentBombRange}");
     }
 
     public void IncreaseMaxActiveBombs()
     {
-        maxActiveBombs = Mathf.Min(3, maxActiveBombs + 1);
+        maxActiveBombs++;
         Debug.Log($"[Buff] Local max active bombs increased to {maxActiveBombs}");
     }
 
-    public void ApplySpeedBuff(float multiplier, float duration)
+    public void IncreasePermanentSpeed(float multiplier)
     {
-        if (speedBuffCoroutine != null)
-        {
-            StopCoroutine(speedBuffCoroutine);
-        }
-        speedBuffCoroutine = StartCoroutine(SpeedBuffRoutine(multiplier, duration));
-    }
-
-    private IEnumerator SpeedBuffRoutine(float multiplier, float duration)
-    {
-        moveSpeed = baseMoveSpeed * multiplier;
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            SpeedBuffProgress = Mathf.Clamp01(1f - (elapsed / duration));
-            yield return null;
-        }
-        moveSpeed = baseMoveSpeed;
-        SpeedBuffProgress = 0f;
-        speedBuffCoroutine = null;
+        permanentSpeedMultiplier += Mathf.Max(0f, multiplier - 1f);
+        moveSpeed = baseMoveSpeed * permanentSpeedMultiplier;
+        Debug.Log($"[Buff] Local speed increased permanently to x{permanentSpeedMultiplier:0.##}");
     }
 }

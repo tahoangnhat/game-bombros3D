@@ -24,12 +24,13 @@ public sealed class OnlinePlayerInputReader
 
     private static Vector2 ReadMoveInput()
     {
+        Vector2 rawInput = Vector2.zero;
+
         if (Gamepad.current != null)
         {
-            return Gamepad.current.leftStick.ReadValue();
+            rawInput = Gamepad.current.leftStick.ReadValue();
         }
-
-        if (Keyboard.current != null)
+        else if (Keyboard.current != null)
         {
             float h = 0f;
             float v = 0f;
@@ -37,10 +38,11 @@ public sealed class OnlinePlayerInputReader
             if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) h += 1f;
             if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) v += 1f;
             if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) v -= 1f;
-            return new Vector2(h, v);
+            rawInput = new Vector2(h, v);
         }
 
-        return Vector2.zero;
+        Vector3 direction = CameraFollow.GetCameraRelativeDirection(rawInput);
+        return new Vector2(direction.x, direction.z);
     }
 
     private bool ReadBombInput()

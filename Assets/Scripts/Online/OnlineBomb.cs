@@ -12,6 +12,7 @@ public class OnlineBomb : NetworkBehaviour
     private Rigidbody bombRigidbody;
     private Collider ownerCollider;
     private bool ownerCanPassThrough = true;
+    private bool hasExploded;
 
     public override void Spawned()
     {
@@ -22,8 +23,6 @@ public class OnlineBomb : NetworkBehaviour
         {
             bombRigidbody.useGravity = false;
             bombRigidbody.isKinematic = true;
-            bombRigidbody.linearVelocity = Vector3.zero;
-            bombRigidbody.angularVelocity = Vector3.zero;
         }
 
         // Vector3 snapped = GridUtility.GetNearestCellCenter(transform.position);
@@ -95,10 +94,13 @@ public class OnlineBomb : NetworkBehaviour
 
     private void Explode()
     {
-        if (!Object.HasStateAuthority)
+        if (hasExploded || !Object.HasStateAuthority)
         {
             return;
         }
+
+        hasExploded = true;
+        CancelInvoke(nameof(Explode));
 
         GridUtility.TryWorldToCell(transform.position, out int bombCellX, out int bombCellZ);
         ProcessExplosionCell(bombCellX, bombCellZ);
@@ -145,6 +147,7 @@ public class OnlineBomb : NetworkBehaviour
         Vector3 worldPos = GridUtility.GetCellCenter(cellX, cellZ);
         SpawnExplosion(worldPos, cellX, cellZ, destroyDestructible);
         DamagePlayersAtCell(cellX, cellZ);
+        TriggerBombAtCell(cellX, cellZ);
 
         if (destroyDestructible)
         {
@@ -188,6 +191,30 @@ public class OnlineBomb : NetworkBehaviour
         return true;
     }
 
+    private void TriggerBombAtCell(int cellX, int cellZ)
+    {
+        OnlineBomb[] bombs = FindObjectsByType<OnlineBomb>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < bombs.Length; i++)
+        {
+            OnlineBomb otherBomb = bombs[i];
+            if (otherBomb == null
+                || otherBomb == this
+                || otherBomb.hasExploded
+                || otherBomb.Object == null
+                || !otherBomb.Object.IsValid
+                || !otherBomb.Object.HasStateAuthority)
+            {
+                continue;
+            }
+
+            GridUtility.TryWorldToCell(otherBomb.transform.position, out int bombCellX, out int bombCellZ);
+            if (bombCellX == cellX && bombCellZ == cellZ)
+            {
+                otherBomb.Explode();
+            }
+        }
+    }
+
     private void DamagePlayersAtCell(int cellX, int cellZ)
     {
         OnlinePlayerHealth[] players = FindObjectsByType<OnlinePlayerHealth>(FindObjectsInactive.Include);
@@ -205,7 +232,7 @@ public class OnlineBomb : NetworkBehaviour
                 continue;
             }
 
-            health.TakeDamage(1);
+            health.TakeDamage(1, Object.InputAuthority);
         }
     }
 
