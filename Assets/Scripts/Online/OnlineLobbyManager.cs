@@ -66,6 +66,9 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     private bool isConnectingToMatch;
     private bool isStoppingFusionForLobby;
     private bool isReturningToLobby;
+    private bool isReadyUpdateInProgress;
+    private bool isUnityAuthenticationInProgress;
+    private Task<bool> unityAuthenticationTask;
     private float lobbyRefreshGraceUntil = -1f;
     private float lastOtpRequestTime = -999f;
     private string pendingOtpEmail = string.Empty;
@@ -88,12 +91,19 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     public string CurrentLobbyCode => currentLobby != null ? currentLobby.LobbyCode : string.Empty;
     public float OtpResendRemainingSeconds => Mathf.Max(0f, otpResendCooldownSeconds - (Time.unscaledTime - lastOtpRequestTime));
     public bool CanResendOtp => !string.IsNullOrEmpty(pendingOtpEmail) && OtpResendRemainingSeconds <= 0f;
-    public bool CanUseLobbyActions => servicesReady && IsSignedIn && !IsNetworkSessionActive();
+    public bool CanUseLobbyActions => servicesReady
+        && IsSignedIn
+        && !isLobbyConnectionInProgress
+        && !isUnityAuthenticationInProgress
+        && !IsNetworkSessionActive();
+    public bool IsLobbyActionInProgress => isLobbyConnectionInProgress || isUnityAuthenticationInProgress;
     public bool IsMatchActive => gameSceneLoaded;
 
     public bool CanToggleReady => servicesReady
         && currentLobby != null
-        && !string.IsNullOrEmpty(GetCurrentLobbyPlayerId());
+        && !string.IsNullOrEmpty(GetCurrentLobbyPlayerId())
+        && !isReadyUpdateInProgress
+        && !isUnityAuthenticationInProgress;
 
     public bool CanStartGame
     {
@@ -344,6 +354,12 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     public void CreateLobbyAndHost()
     {
+        if (isLobbyConnectionInProgress || isUnityAuthenticationInProgress)
+        {
+            statusMessage = "Lobby action already in progress...";
+            return;
+        }
+
         _ = CreateLobbyAndHostAsync();
     }
 
@@ -390,21 +406,43 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     public void JoinLobbyByInputCode()
     {
+        if (isLobbyConnectionInProgress || isUnityAuthenticationInProgress)
+        {
+            statusMessage = "Lobby action already in progress...";
+            return;
+        }
+
         _ = JoinLobbyAndConnectAsync(joinLobbyCode);
     }
 
     public void QuickJoin()
     {
+        if (isLobbyConnectionInProgress || isUnityAuthenticationInProgress)
+        {
+            statusMessage = "Lobby action already in progress...";
+            return;
+        }
+
         _ = QuickJoinAndConnectAsync();
     }
 
     public void ToggleReady()
     {
+        if (!CanToggleReady)
+        {
+            return;
+        }
+
         _ = ToggleReadyAsync();
     }
 
     public void StartGame()
     {
+        if (isLoadingGame)
+        {
+            return;
+        }
+
         _ = StartGameAsync();
     }
 
@@ -701,17 +739,23 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task CreateLobbyAndHostAsync()
     {
-        await InitializeServicesAsync();
-
-        if (!servicesReady || !await EnsureUnityAuthenticationAsync())
+        if (isLobbyConnectionInProgress)
         {
-            statusMessage = "Please login first";
+            statusMessage = "Lobby action already in progress...";
             return;
         }
 
         isLobbyConnectionInProgress = true;
         try
         {
+            await InitializeServicesAsync();
+
+            if (!servicesReady || !await EnsureUnityAuthenticationAsync())
+            {
+                statusMessage = "Please login first";
+                return;
+            }
+
             statusMessage = "Creating lobby...";
             currentLobby = await LobbyService.Instance.CreateLobbyAsync(
                 lobbyName,
@@ -742,23 +786,29 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task JoinLobbyAndConnectAsync(string lobbyCode)
     {
-        await InitializeServicesAsync();
-
-        if (!servicesReady || !await EnsureUnityAuthenticationAsync())
+        if (isLobbyConnectionInProgress)
         {
-            statusMessage = "Please login first";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(lobbyCode))
-        {
-            statusMessage = "Enter a lobby code first";
+            statusMessage = "Lobby action already in progress...";
             return;
         }
 
         isLobbyConnectionInProgress = true;
         try
         {
+            await InitializeServicesAsync();
+
+            if (!servicesReady || !await EnsureUnityAuthenticationAsync())
+            {
+                statusMessage = "Please login first";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(lobbyCode))
+            {
+                statusMessage = "Enter a lobby code first";
+                return;
+            }
+
             statusMessage = "Joining lobby...";
             string trimmedLobbyCode = NormalizeLobbyCodeInput(lobbyCode);
             if (string.IsNullOrWhiteSpace(trimmedLobbyCode))
@@ -1081,17 +1131,23 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task QuickJoinAndConnectAsync()
     {
-        await InitializeServicesAsync();
-
-        if (!servicesReady || !await EnsureUnityAuthenticationAsync())
+        if (isLobbyConnectionInProgress)
         {
-            statusMessage = "Please login first";
+            statusMessage = "Lobby action already in progress...";
             return;
         }
 
         isLobbyConnectionInProgress = true;
         try
         {
+            await InitializeServicesAsync();
+
+            if (!servicesReady || !await EnsureUnityAuthenticationAsync())
+            {
+                statusMessage = "Please login first";
+                return;
+            }
+
             statusMessage = "Quick joining...";
             currentLobby = await LobbyService.Instance.QuickJoinLobbyAsync(new QuickJoinLobbyOptions
             {
@@ -1117,7 +1173,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task StartGameAsync()
     {
-        if (!isHost || currentLobby == null)
+        if (isLoadingGame || !isHost || currentLobby == null)
         {
             return;
         }
@@ -1557,20 +1613,26 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task SetLocalReadyAsync(bool ready)
     {
-        if (!await EnsureUnityAuthenticationAsync())
-        {
-            statusMessage = "Please login first";
-            return;
-        }
-
-        string playerId = GetCurrentLobbyPlayerId();
-        if (currentLobby == null || string.IsNullOrEmpty(playerId))
+        if (isReadyUpdateInProgress)
         {
             return;
         }
 
+        isReadyUpdateInProgress = true;
         try
         {
+            if (!await EnsureUnityAuthenticationAsync())
+            {
+                statusMessage = "Please login first";
+                return;
+            }
+
+            string playerId = GetCurrentLobbyPlayerId();
+            if (currentLobby == null || string.IsNullOrEmpty(playerId))
+            {
+                return;
+            }
+
             UpdatePlayerOptions options = new UpdatePlayerOptions
             {
                 Data = BuildLobbyPlayerData(ready)
@@ -1588,6 +1650,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             statusMessage = $"Ready update failed: {ex.Message}";
             Debug.LogException(ex);
+        }
+        finally
+        {
+            isReadyUpdateInProgress = false;
         }
     }
 
@@ -2126,6 +2192,28 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task<bool> EnsureUnityAuthenticationAsync()
     {
+        if (unityAuthenticationTask != null && !unityAuthenticationTask.IsCompleted)
+        {
+            statusMessage = "Unity sign-in already in progress...";
+            return await unityAuthenticationTask;
+        }
+
+        unityAuthenticationTask = EnsureUnityAuthenticationCoreAsync();
+        try
+        {
+            return await unityAuthenticationTask;
+        }
+        finally
+        {
+            if (unityAuthenticationTask != null && unityAuthenticationTask.IsCompleted)
+            {
+                unityAuthenticationTask = null;
+            }
+        }
+    }
+
+    private async Task<bool> EnsureUnityAuthenticationCoreAsync()
+    {
         if (!servicesReady)
         {
             return false;
@@ -2144,6 +2232,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         string profile = BuildUnityAuthProfile(springUser);
 
+        isUnityAuthenticationInProgress = true;
         try
         {
             if (auth.IsSignedIn && string.Equals(auth.Profile, profile, System.StringComparison.Ordinal))
@@ -2189,6 +2278,10 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             statusMessage = $"Unity sign-in failed: {ex.Message}";
             Debug.LogException(ex);
             return false;
+        }
+        finally
+        {
+            isUnityAuthenticationInProgress = false;
         }
     }
 

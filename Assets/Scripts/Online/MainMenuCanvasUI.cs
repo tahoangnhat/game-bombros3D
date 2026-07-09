@@ -18,12 +18,18 @@ public class MainMenuCanvasUI : MonoBehaviour
     [Header("Scene")]
     [SerializeField] private string lobbySceneName = "LobbyScene";
 
+    [Header("Refresh")]
+    [SerializeField] private float refreshInterval = 0.2f;
+
     [Header("Auto Find")]
     [SerializeField] private bool autoFindButtonsByName = true;
     [SerializeField] private bool autoFindJoinCodeFieldByName = true;
     [SerializeField] private string createButtonNameKeyword = "create";
     [SerializeField] private string joinButtonNameKeyword = "join";
     [SerializeField] private string joinCodeFieldNameKeyword = "code";
+
+    private float refreshTimer;
+    private Coroutine loadLobbySceneCoroutine;
 
     private void Awake()
     {
@@ -41,11 +47,24 @@ public class MainMenuCanvasUI : MonoBehaviour
         }
 
         SyncJoinCodeField();
+        RefreshUI();
     }
 
     private void OnDestroy()
     {
         UnbindEvents();
+    }
+
+    private void Update()
+    {
+        ResolveReferences();
+
+        refreshTimer += Time.unscaledDeltaTime;
+        if (refreshTimer >= refreshInterval)
+        {
+            refreshTimer = 0f;
+            RefreshUI();
+        }
     }
 
     private void ResolveReferences()
@@ -113,12 +132,39 @@ public class MainMenuCanvasUI : MonoBehaviour
         }
     }
 
+    private void RefreshUI()
+    {
+        bool canUseLobbyActions = lobbyManager != null && lobbyManager.CanUseLobbyActions;
+
+        SetLobbyButtonsInteractable(canUseLobbyActions);
+    }
+
+    private void SetLobbyButtonsInteractable(bool canUseLobbyActions)
+    {
+        if (createButton != null)
+        {
+            createButton.interactable = canUseLobbyActions;
+        }
+
+        if (joinButton != null)
+        {
+            joinButton.interactable = canUseLobbyActions && !string.IsNullOrWhiteSpace(ReadJoinCode());
+        }
+    }
+
     private void OnCreateClicked()
     {
         ResolveReferences();
 
-        lobbyManager?.CreateLobbyAndHost();
-        StartCoroutine(LoadLobbySceneWhenReady());
+        if (lobbyManager == null || !lobbyManager.CanUseLobbyActions)
+        {
+            return;
+        }
+
+        RefreshUI();
+        lobbyManager.CreateLobbyAndHost();
+        SetLobbyButtonsInteractable(false);
+        StartLoadLobbySceneWhenReady();
     }
 
     private void OnJoinClicked()
@@ -136,13 +182,30 @@ public class MainMenuCanvasUI : MonoBehaviour
             return;
         }
 
+        if (lobbyManager == null || !lobbyManager.CanUseLobbyActions)
+        {
+            return;
+        }
+
         if (lobbyManager != null)
         {
             lobbyManager.SetJoinCodeInput(lobbyCode);
             lobbyManager.JoinLobbyByInputCode();
         }
 
-        StartCoroutine(LoadLobbySceneWhenReady());
+        RefreshUI();
+        StartLoadLobbySceneWhenReady();
+        SetLobbyButtonsInteractable(false);
+    }
+
+    private void StartLoadLobbySceneWhenReady()
+    {
+        if (loadLobbySceneCoroutine != null)
+        {
+            return;
+        }
+
+        loadLobbySceneCoroutine = StartCoroutine(LoadLobbySceneWhenReady());
     }
 
     private IEnumerator LoadLobbySceneWhenReady()
@@ -155,6 +218,7 @@ public class MainMenuCanvasUI : MonoBehaviour
             string message = lobbyManager.statusMessage != null ? lobbyManager.statusMessage.ToLowerInvariant() : string.Empty;
             if (message.Contains("failed") || message.Contains("please login first") || message.Contains("enter a lobby code first"))
             {
+                loadLobbySceneCoroutine = null;
                 yield break;
             }
 
@@ -165,6 +229,8 @@ public class MainMenuCanvasUI : MonoBehaviour
         {
             LoadLobbyScene();
         }
+
+        loadLobbySceneCoroutine = null;
     }
 
     private string ReadJoinCode()
