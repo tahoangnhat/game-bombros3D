@@ -1234,16 +1234,16 @@ MonoBehaviour:
   - seasonName: Spring
     levelData: {fileID: 11400000, guid: 81f6d542bd547cd45a9a03c5b828693c, type: 2}
     floorPrefabs:
-    - prefab: {fileID: 139022, guid: 07ace05306ce58d49963df7396227e22, type: 3}
+    - prefab: {fileID: 6083384531624696517, guid: a23e9c6cd436a1b41b185dd6ee06aaab, type: 3}
       offset: {x: 0, y: 0, z: 0}
     borderWallPrefabs:
-    - prefab: {fileID: 142132, guid: 13af20cb32cfaab428901a23183d2ca1, type: 3}
+    - prefab: {fileID: 3278830471189315427, guid: 4a7c4c89fa58773418c0608678fe4344, type: 3}
       offset: {x: 0, y: 0, z: 0}
     middleWallPrefabs:
-    - prefab: {fileID: 1570628789228942, guid: baebdd3b26f756b4c8f1b2d2efe1cf42, type: 3}
+    - prefab: {fileID: 1602700456910951018, guid: d92361a9a18dc124998f6542a01fa9aa, type: 3}
       offset: {x: 0, y: 0, z: 0}
     destructibleWallPrefabs:
-    - prefab: {fileID: 161956, guid: 64b839200fb1c394abe8b5e1693c5cf4, type: 3}
+    - prefab: {fileID: 1655710340089370931, guid: 20df42e6b943215408c3c4ef36d3afb8, type: 3}
       offset: {x: 0, y: 0, z: 0}
   - seasonName: Summer
     levelData: {fileID: 11400000, guid: cc580691718269340adf054af6939f6c, type: 2}
