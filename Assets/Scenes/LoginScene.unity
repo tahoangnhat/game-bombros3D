@@ -506,6 +506,7 @@ MonoBehaviour:
   loginIdentifierField: {fileID: 1154749929}
   loginPasswordField: {fileID: 479924402}
   loginSubmitButton: {fileID: 560436645}
+  guestLoginButton: {fileID: 0}
   goToRegisterButton: {fileID: 942427652}
   goToForgotPasswordButton: {fileID: 382749813}
   loginPasswordEyeButton: {fileID: 0}
@@ -1524,11 +1525,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OnlineLobbyManager
   lobbyName: BoomBros Online
   maxPlayers: 4
-  minPlayersToStart: 2
+  minPlayersToStart: 1
   joinLobbyCode: 
   statusMessage: Initializing...
   gameSceneName: GameScene
   lobbySceneName: LobbyScene
+  randomizeMapOnStart: 1
+  onlineRandomMapCount: 4
   playerPrefab: {fileID: 368358091517084955, guid: 8122fc6253952a04ab1404b96d7aeaa9, type: 3}
   bombPrefab: {fileID: 8623456789012345670, guid: deec0b8f2c9b5d847b35df609d14fcf8, type: 3}
   explosionPrefab: {fileID: 1111111111111111111, guid: 17e093486026a91469e7fb65d95b67f2, type: 3}

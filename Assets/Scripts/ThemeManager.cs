@@ -38,6 +38,7 @@ public class ThemeManager : MonoBehaviour
 
     [Header("Themes")]
     [SerializeField] private SeasonTheme[] themes = new SeasonTheme[4];
+    [SerializeField] private int defaultThemeIndex = 0;
 
     [Header("Players")]
     [SerializeField] private GameObject[] playerPrefabs = new GameObject[4];
@@ -60,10 +61,10 @@ public class ThemeManager : MonoBehaviour
 
     private void Start()
     {
-        // Apply first theme by default
-        if (themes.Length > 0 && themes[0].levelData != null)
+        int startThemeIndex = GetStartThemeIndex();
+        if (IsThemeConfigured(startThemeIndex))
         {
-            SetTheme(0);
+            SetTheme(startThemeIndex);
         }
     }
 
@@ -380,5 +381,56 @@ public class ThemeManager : MonoBehaviour
     public int GetThemeCount()
     {
         return themes.Length;
+    }
+
+    private int GetStartThemeIndex()
+    {
+        if (themes == null || themes.Length == 0)
+        {
+            return -1;
+        }
+
+        if (OnlineSessionState.IsOnlineSession && OnlineSessionState.SelectedThemeIndex >= 0)
+        {
+            int onlineThemeIndex = Mathf.Clamp(OnlineSessionState.SelectedThemeIndex, 0, themes.Length - 1);
+            if (IsThemeConfigured(onlineThemeIndex))
+            {
+                return onlineThemeIndex;
+            }
+
+            Debug.LogWarning($"Online theme index {OnlineSessionState.SelectedThemeIndex} is not configured. Falling back to default theme.");
+        }
+
+        int clampedDefaultThemeIndex = Mathf.Clamp(defaultThemeIndex, 0, themes.Length - 1);
+        return IsThemeConfigured(clampedDefaultThemeIndex)
+            ? clampedDefaultThemeIndex
+            : FindFirstConfiguredThemeIndex();
+    }
+
+    private bool IsThemeConfigured(int themeIndex)
+    {
+        return themes != null
+            && themeIndex >= 0
+            && themeIndex < themes.Length
+            && themes[themeIndex] != null
+            && themes[themeIndex].levelData != null;
+    }
+
+    private int FindFirstConfiguredThemeIndex()
+    {
+        if (themes == null)
+        {
+            return -1;
+        }
+
+        for (int i = 0; i < themes.Length; i++)
+        {
+            if (IsThemeConfigured(i))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 }

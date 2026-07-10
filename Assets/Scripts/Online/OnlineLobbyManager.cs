@@ -18,19 +18,24 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
     private const string DisplayNameKey = "displayName";
     private const string ClientInstanceKey = "clientInstanceId";
     private const string MatchStartKey = "matchStart";
+    private const string MatchMapIndexKey = "matchMapIndex";
 
     public static OnlineLobbyManager Instance { get; private set; }
 
     [Header("Lobby")]
     public string lobbyName = "BoomBros Online";
-    [Range(2, 4)] public int maxPlayers = 4;
-    [Range(2, 4)] public int minPlayersToStart = 2;
+    [Range(1, 4)] public int maxPlayers = 4;
+    [Range(1, 4)] public int minPlayersToStart = 1;
     public string joinLobbyCode = "";
     public string statusMessage = "Initializing...";
 
     [Header("Scenes")]
     public string gameSceneName = "GameScene";
     public string lobbySceneName = "LobbyScene";
+
+    [Header("Map Random")]
+    [SerializeField] private bool randomizeMapOnStart = true;
+    [SerializeField, Min(1)] private int onlineRandomMapCount = 4;
 
     [Header("Network Prefabs")]
     public NetworkObject playerPrefab;
@@ -244,6 +249,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         AutoAssignNetworkPrefabs();
         OnlineSessionState.IsOnlineSession = false;
+        OnlineSessionState.ClearMatchMap();
 
         if (autoInitialize)
         {
@@ -763,7 +769,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                 new CreateLobbyOptions
                 {
                     Player = BuildLobbyPlayer(true),
-                    Data = BuildMatchStartData(false)
+                    Data = BuildMatchStartData(false, -1)
                 });
             CaptureCurrentLobbyPlayerId();
             isHost = true;
@@ -1206,16 +1212,19 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         isLoadingGame = true;
         gameSceneLoaded = false;
         statusMessage = "Starting Fusion host session...";
+        int selectedThemeIndex = SelectMatchThemeIndex();
+        OnlineSessionState.SelectedThemeIndex = selectedThemeIndex;
 
         if (!await StartFusionSessionAsync(GameMode.Host, currentLobby.LobbyCode))
         {
             isLoadingGame = false;
+            OnlineSessionState.ClearMatchMap();
             return;
         }
 
         currentLobby = await LobbyService.Instance.UpdateLobbyAsync(
             currentLobby.Id,
-            new UpdateLobbyOptions { Data = BuildMatchStartData(true) });
+            new UpdateLobbyOptions { Data = BuildMatchStartData(true, selectedThemeIndex) });
 
         statusMessage = "Waiting for players to connect...";
         float connectDeadline = Time.realtimeSinceStartup + 15f;
@@ -1262,6 +1271,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         isReturningToLobby = true;
         OnlineSessionState.IsOnlineSession = false;
+        OnlineSessionState.ClearMatchMap();
         isLoadingGame = false;
         gameSceneLoaded = false;
         statusMessage = $"Returning to {lobbySceneName}...";
@@ -1272,7 +1282,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             currentLobby = await LobbyService.Instance.UpdateLobbyAsync(
                 currentLobby.Id,
-                new UpdateLobbyOptions { Data = BuildMatchStartData(false) });
+                new UpdateLobbyOptions { Data = BuildMatchStartData(false, -1) });
         }
 
         // Clients close their runners after their lobby scene finishes loading.
@@ -1446,6 +1456,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
                 && IsMatchStartRequested(currentLobby)
                 && (runner == null || !runner.IsRunning))
             {
+                ApplyMatchMapFromLobby(currentLobby);
                 _ = ConnectToStartedMatchAsync();
             }
             else if (!localPlayerIsHost
@@ -1494,6 +1505,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         isConnectingToMatch = true;
         try
         {
+            ApplyMatchMapFromLobby(currentLobby);
             isLoadingGame = true;
             statusMessage = "Connecting to the match...";
             string lobbyCode = currentLobby.LobbyCode;
@@ -1523,6 +1535,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         try
         {
             OnlineSessionState.IsOnlineSession = false;
+            OnlineSessionState.ClearMatchMap();
             await ShutdownAndDisposeRunnerAsync();
             await LoadLobbySceneLocallyAsync();
         }
@@ -1587,6 +1600,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         isStoppingFusionForLobby = false;
         isReturningToLobby = false;
         OnlineSessionState.IsOnlineSession = false;
+        OnlineSessionState.ClearMatchMap();
         statusMessage = message;
 
         if (matchSpawnCoroutine != null)
@@ -1676,13 +1690,17 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         };
     }
 
-    private static Dictionary<string, DataObject> BuildMatchStartData(bool start)
+    private static Dictionary<string, DataObject> BuildMatchStartData(bool start, int themeIndex)
     {
         return new Dictionary<string, DataObject>
         {
             {
                 MatchStartKey,
                 new DataObject(DataObject.VisibilityOptions.Member, start ? "1" : "0")
+            },
+            {
+                MatchMapIndexKey,
+                new DataObject(DataObject.VisibilityOptions.Member, themeIndex.ToString())
             }
         };
     }
@@ -1694,6 +1712,35 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
             && lobby.Data.TryGetValue(MatchStartKey, out DataObject startData)
             && startData != null
             && startData.Value == "1";
+    }
+
+    private int SelectMatchThemeIndex()
+    {
+        if (!randomizeMapOnStart || onlineRandomMapCount <= 1)
+        {
+            return 0;
+        }
+
+        return Random.Range(0, onlineRandomMapCount);
+    }
+
+    private static void ApplyMatchMapFromLobby(Lobby lobby)
+    {
+        OnlineSessionState.SelectedThemeIndex = GetMatchMapIndex(lobby);
+    }
+
+    private static int GetMatchMapIndex(Lobby lobby)
+    {
+        if (lobby == null
+            || lobby.Data == null
+            || !lobby.Data.TryGetValue(MatchMapIndexKey, out DataObject mapData)
+            || mapData == null
+            || string.IsNullOrWhiteSpace(mapData.Value))
+        {
+            return -1;
+        }
+
+        return int.TryParse(mapData.Value, out int themeIndex) ? themeIndex : -1;
     }
 
     private bool AreAllPlayersReady()
@@ -2520,8 +2567,8 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 #if UNITY_EDITOR
     private void OnValidate()
     {
-        maxPlayers = Mathf.Clamp(maxPlayers, 2, 4);
-        minPlayersToStart = Mathf.Clamp(minPlayersToStart, 2, maxPlayers);
+        maxPlayers = Mathf.Clamp(maxPlayers, 1, 4);
+        minPlayersToStart = Mathf.Clamp(minPlayersToStart, 1, maxPlayers);
         AutoAssignNetworkPrefabs();
     }
 
