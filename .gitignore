@@ -71,6 +71,12 @@ Assets/SyntyStudios*.meta
 Assets/Polygon*/
 Assets/Polygon*.meta
 
+# Third-party low-poly asset packs. Keep curated prefabs/materials elsewhere if needed.
+Assets/Lowpoly Biome Pack/
+Assets/Lowpoly Biome Pack.meta
+Assets/Lowpoly Forest Pack Winter/
+Assets/Lowpoly Forest Pack Winter.meta
+
 # Recovery / backup content
 Assets/_Recovery/
 Assets/_Recovery/*.unity
