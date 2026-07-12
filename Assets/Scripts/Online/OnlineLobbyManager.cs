@@ -1288,6 +1288,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         // Clients close their runners after their lobby scene finishes loading.
         // Wait for them to leave before the host closes the room.
         float disconnectDeadline = Time.realtimeSinceStartup + 5f;
+        AsyncOperation lobbyPreload = BeginLobbyScenePreload();
         while (CountActiveFusionPlayers() > 1
             && Time.realtimeSinceStartup < disconnectDeadline)
         {
@@ -1295,7 +1296,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         Debug.Log($"[Fusion Return] Host closing runner with {CountActiveFusionPlayers()} active player(s).");
         await ShutdownAndDisposeRunnerAsync();
-        await LoadLobbySceneLocallyAsync();
+        await LoadLobbySceneLocallyAsync(lobbyPreload);
         statusMessage = "Returned to lobby";
         isReturningToLobby = false;
     }
@@ -1536,8 +1537,9 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             OnlineSessionState.IsOnlineSession = false;
             OnlineSessionState.ClearMatchMap();
+            AsyncOperation lobbyPreload = BeginLobbyScenePreload();
             await ShutdownAndDisposeRunnerAsync();
-            await LoadLobbySceneLocallyAsync();
+            await LoadLobbySceneLocallyAsync(lobbyPreload);
         }
         finally
         {
@@ -1545,7 +1547,26 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    private async Task LoadLobbySceneLocallyAsync()
+    private AsyncOperation BeginLobbyScenePreload()
+    {
+        if (string.IsNullOrWhiteSpace(lobbySceneName))
+        {
+            return null;
+        }
+
+        AsyncOperation loadOperation =
+            SceneManager.LoadSceneAsync(lobbySceneName, LoadSceneMode.Single);
+        if (loadOperation == null)
+        {
+            Debug.LogError($"[Fusion Return] Could not preload {lobbySceneName}.");
+            return null;
+        }
+
+        loadOperation.allowSceneActivation = false;
+        return loadOperation;
+    }
+
+    private async Task LoadLobbySceneLocallyAsync(AsyncOperation preloadOperation = null)
     {
         if (string.IsNullOrWhiteSpace(lobbySceneName))
         {
@@ -1555,29 +1576,39 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
         // Fusion unloads its managed scene when the runner shuts down and leaves
         // FusionSceneManager_TempEmptyScene active. Load a normal Unity scene
         // after shutdown so the lobby keeps its camera, canvas, and EventSystem.
-        await Task.Yield();
-
-        Scene activeScene = SceneManager.GetActiveScene();
-        bool hasLocalLobbyScene = activeScene.IsValid()
-            && activeScene.isLoaded
-            && string.Equals(
-                activeScene.name,
-                lobbySceneName,
-                System.StringComparison.Ordinal);
-
-        if (!hasLocalLobbyScene)
+        if (preloadOperation != null)
         {
-            AsyncOperation loadOperation =
-                SceneManager.LoadSceneAsync(lobbySceneName, LoadSceneMode.Single);
-            if (loadOperation == null)
-            {
-                Debug.LogError($"[Fusion Return] Could not load {lobbySceneName} locally.");
-                return;
-            }
-
-            while (!loadOperation.isDone)
+            preloadOperation.allowSceneActivation = true;
+            while (!preloadOperation.isDone)
             {
                 await Task.Yield();
+            }
+        }
+        else
+        {
+            Scene activeScene = SceneManager.GetActiveScene();
+            bool hasLocalLobbyScene = activeScene.IsValid()
+                && activeScene.isLoaded
+                && string.Equals(
+                    activeScene.name,
+                    lobbySceneName,
+                    System.StringComparison.Ordinal)
+                && !OnlineScenePresentation.IsFusionTempEmptySceneActive();
+
+            if (!hasLocalLobbyScene)
+            {
+                AsyncOperation loadOperation =
+                    SceneManager.LoadSceneAsync(lobbySceneName, LoadSceneMode.Single);
+                if (loadOperation == null)
+                {
+                    Debug.LogError($"[Fusion Return] Could not load {lobbySceneName} locally.");
+                    return;
+                }
+
+                while (!loadOperation.isDone)
+                {
+                    await Task.Yield();
+                }
             }
         }
 
@@ -2194,6 +2225,7 @@ public class OnlineLobbyManager : MonoBehaviour, INetworkRunnerCallbacks
 
         if (oldRunner.IsRunning)
         {
+            OnlineScenePresentation.ShowTransitionCamera();
             await oldRunner.Shutdown();
 
             for (int i = 0; i < 40; i++)

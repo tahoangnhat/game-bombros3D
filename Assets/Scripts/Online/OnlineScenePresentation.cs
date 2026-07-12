@@ -4,6 +4,50 @@ using UnityEngine.SceneManagement;
 
 public static class OnlineScenePresentation
 {
+    private static Camera transitionCamera;
+
+    public static bool IsFusionTempEmptySceneActive()
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        return activeScene.IsValid()
+            && activeScene.name.StartsWith(
+                "FusionSceneManager_TempEmptyScene",
+                System.StringComparison.Ordinal);
+    }
+
+    public static void ShowTransitionCamera()
+    {
+        EnsureTransitionCamera();
+        transitionCamera.enabled = true;
+    }
+
+    public static void HideTransitionCamera()
+    {
+        if (transitionCamera != null)
+        {
+            transitionCamera.enabled = false;
+        }
+    }
+
+    private static void EnsureTransitionCamera()
+    {
+        if (transitionCamera != null)
+        {
+            return;
+        }
+
+        GameObject cameraObject = new GameObject("SceneTransitionCamera");
+        Object.DontDestroyOnLoad(cameraObject);
+
+        transitionCamera = cameraObject.AddComponent<Camera>();
+        transitionCamera.clearFlags = CameraClearFlags.SolidColor;
+        transitionCamera.backgroundColor = new Color(0.08f, 0.07f, 0.1f, 1f);
+        transitionCamera.cullingMask = 0;
+        transitionCamera.depth = -100;
+        transitionCamera.orthographic = true;
+        transitionCamera.enabled = false;
+    }
+
     public static bool IsGameSceneLoaded(string gameSceneName)
     {
         if (string.IsNullOrWhiteSpace(gameSceneName))
@@ -80,6 +124,8 @@ public static class OnlineScenePresentation
         {
             SceneManager.SetActiveScene(lobbyScene);
         }
+
+        HideTransitionCamera();
     }
 
     public static void EnforceSingleEventSystem()
