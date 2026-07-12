@@ -42,6 +42,21 @@ public class PlayerStatusHUD : MonoBehaviour
     private bool personalCardStyled;
     private float rosterRefreshTimer;
 
+    private static readonly Color CardBackground = new Color(0.38f, 0.24f, 0.13f, 1f);
+    private static readonly Color CardBorderGold = new Color(0.95f, 0.78f, 0.22f, 1f);
+    private static readonly Color NameGold = new Color(1f, 0.88f, 0.35f, 1f);
+    private static readonly Color IconFrameBrown = new Color(0.18f, 0.11f, 0.06f, 1f);
+    private static readonly Color HpIconPink = new Color(0.93f, 0.18f, 0.42f, 1f);
+    private static readonly Color PortraitFrameBrown = new Color(0.15f, 0.09f, 0.05f, 1f);
+    private const float StatValueFontSize = 22f;
+    private const float PlayerNameFontSize = 20f;
+    private static readonly float[] StatRowCenterY = { 0.62f, 0.46f, 0.30f, 0.14f };
+    private const float StatIconLeft = 0.40f;
+    private const float StatIconRight = 0.52f;
+    private const float StatValueLeft = 0.54f;
+    private const float StatValueRight = 0.96f;
+    private const float StatRowHalfHeight = 0.07f;
+
     private void Start()
     {
         for (int i = 0; i < playerCards.Length; i++)
@@ -144,7 +159,6 @@ public class PlayerStatusHUD : MonoBehaviour
 
         bool isDead;
         int currentHealth;
-        int maxHealth;
         int maxBombs;
         int currentRange;
         float speedMultiplier;
@@ -155,7 +169,6 @@ public class PlayerStatusHUD : MonoBehaviour
             OnlinePlayerHealth health = localOnlinePlayer.GetComponent<OnlinePlayerHealth>();
             isDead = health != null && health.IsEliminated;
             currentHealth = health != null ? health.CurrentHealth : 0;
-            maxHealth = health != null ? health.MaxHealth : 0;
             maxBombs = localOnlinePlayer.MaxActiveBombs;
             currentRange = localOnlinePlayer.CurrentBombRange;
             speedMultiplier = Mathf.Max(1f, localOnlinePlayer.SpeedMultiplier);
@@ -170,7 +183,6 @@ public class PlayerStatusHUD : MonoBehaviour
             PlayerHealth health = localPlayer.GetComponent<PlayerHealth>();
             isDead = health == null || !health.IsAlive;
             currentHealth = health != null ? health.CurrentHealth : 0;
-            maxHealth = health != null ? health.MaxHealth : 0;
             maxBombs = localPlayer.MaxActiveBombs;
             currentRange = localPlayer.CurrentBombRange;
             speedMultiplier = localPlayer.SpeedMultiplier;
@@ -179,34 +191,17 @@ public class PlayerStatusHUD : MonoBehaviour
 
         if (card.playerNameText != null)
         {
-            card.playerNameText.text = "YOU  |  " + displayName.ToUpperInvariant();
+            card.playerNameText.text = displayName.ToUpperInvariant();
         }
         if (card.eliminatedOverlay != null)
         {
             card.eliminatedOverlay.SetActive(isDead);
         }
 
-        Color activeGreen = new Color(0.2f, 0.8f, 0.2f, 1f);
-        Color inactiveGrey = new Color(0.3f, 0.32f, 0.35f, 1f);
-        if (card.shieldLight != null)
-        {
-            card.shieldLight.gameObject.name = "HealthStatus";
-            float healthRatio = maxHealth > 0 ? (float)currentHealth / maxHealth : 0f;
-            card.shieldLight.color = Color.Lerp(
-                new Color(0.85f, 0.15f, 0.2f, 1f),
-                activeGreen,
-                healthRatio);
-        }
-        if (card.bombLight != null)
-        {
-            card.bombLight.color = maxBombs > 1 ? activeGreen : inactiveGrey;
-        }
-
         EnsureStatValueTexts(card);
         if (healthValueText != null)
         {
-            healthValueText.text =
-                Mathf.Max(0, currentHealth) + "/" + Mathf.Max(1, maxHealth);
+            healthValueText.text = Mathf.Max(0, currentHealth).ToString();
         }
         if (bombValueText != null)
         {
@@ -220,8 +215,6 @@ public class PlayerStatusHUD : MonoBehaviour
         {
             card.speedCountdownText.gameObject.name = "SpeedMultiplierText";
             card.speedCountdownText.text = "SPD x" + speedMultiplier.ToString("0.##");
-            card.speedCountdownText.color =
-                speedMultiplier > 1f ? activeGreen : inactiveGrey;
         }
     }
 
@@ -232,11 +225,13 @@ public class PlayerStatusHUD : MonoBehaviour
             return;
         }
 
+        Transform cardRoot = card.cardParent.transform;
         card.cardParent.name = "LocalPlayerHUD";
+
         Image background = card.cardParent.GetComponent<Image>();
         if (background != null)
         {
-            background.color = new Color(0.025f, 0.035f, 0.055f, 0.92f);
+            background.color = CardBackground;
             background.raycastTarget = false;
         }
 
@@ -245,32 +240,235 @@ public class PlayerStatusHUD : MonoBehaviour
         {
             outline = card.cardParent.AddComponent<Outline>();
         }
-        outline.effectColor = new Color(0.95f, 0.58f, 0.12f, 0.9f);
-        outline.effectDistance = new Vector2(2f, -2f);
+        outline.effectColor = CardBorderGold;
+        outline.effectDistance = new Vector2(3f, -3f);
         outline.useGraphicAlpha = true;
 
-        Shadow shadow = card.cardParent.AddComponent<Shadow>();
-        shadow.effectColor = new Color(0f, 0f, 0f, 0.7f);
-        shadow.effectDistance = new Vector2(5f, -5f);
+        Shadow shadow = card.cardParent.GetComponent<Shadow>();
+        if (shadow == null)
+        {
+            shadow = card.cardParent.AddComponent<Shadow>();
+        }
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.55f);
+        shadow.effectDistance = new Vector2(4f, -4f);
         shadow.useGraphicAlpha = true;
 
         if (card.playerNameText != null)
         {
-            card.playerNameText.color = new Color(1f, 0.72f, 0.27f, 1f);
+            RectTransform nameRect = card.playerNameText.rectTransform;
+            nameRect.anchorMin = new Vector2(0.04f, 0.74f);
+            nameRect.anchorMax = new Vector2(0.96f, 0.92f);
+            nameRect.offsetMin = Vector2.zero;
+            nameRect.offsetMax = Vector2.zero;
+
+            card.playerNameText.color = NameGold;
             card.playerNameText.fontStyle = FontStyles.Bold;
-            card.playerNameText.fontSize = 22f;
+            card.playerNameText.fontSize = PlayerNameFontSize;
+            card.playerNameText.enableAutoSizing = true;
+            card.playerNameText.fontSizeMin = 14f;
+            card.playerNameText.fontSizeMax = PlayerNameFontSize;
+            card.playerNameText.alignment = TextAlignmentOptions.Center;
+            card.playerNameText.overflowMode = TextOverflowModes.Ellipsis;
         }
-        if (card.rangeText != null)
+
+        Transform characterImage = cardRoot.Find("CharacterImage");
+        if (characterImage != null)
         {
-            card.rangeText.color = new Color(0.45f, 0.82f, 1f, 1f);
-            card.rangeText.fontStyle = FontStyles.Bold;
+            RectTransform portraitRect = characterImage.GetComponent<RectTransform>();
+            portraitRect.anchorMin = new Vector2(0.04f, 0.08f);
+            portraitRect.anchorMax = new Vector2(0.36f, 0.70f);
+            portraitRect.offsetMin = Vector2.zero;
+            portraitRect.offsetMax = Vector2.zero;
+
+            Image portraitImage = characterImage.GetComponent<Image>();
+            if (portraitImage != null)
+            {
+                portraitImage.color = Color.white;
+                portraitImage.preserveAspect = true;
+            }
+
+            EnsurePortraitFrame(cardRoot, characterImage);
+            characterImage.SetSiblingIndex(1);
         }
-        if (card.speedCountdownText != null)
+
+        LayoutStatRowIcon(cardRoot, "ShieldIcon", 0);
+        LayoutStatRowIcon(cardRoot, "HealthIcon", 0);
+        LayoutStatRowIcon(cardRoot, "BombIcon", 1);
+        LayoutStatRowIcon(cardRoot, "RangeIcon", 2);
+        LayoutStatRowIcon(cardRoot, "SpeedIcon", 3);
+
+        LayoutStatRowValue(card.shieldLight, 0);
+        LayoutStatRowValue(card.bombLight, 1);
+        LayoutStatRowValue(card.rangeText, 2);
+        LayoutStatRowValue(card.speedCountdownText, 3);
+
+        ApplyStatValueStyle(card.rangeText, card);
+        ApplyStatValueStyle(card.speedCountdownText, card);
+
+        if (card.eliminatedOverlay != null)
         {
-            card.speedCountdownText.fontStyle = FontStyles.Bold;
+            RectTransform overlayRect = card.eliminatedOverlay.GetComponent<RectTransform>();
+            if (overlayRect != null)
+            {
+                overlayRect.anchorMin = Vector2.zero;
+                overlayRect.anchorMax = Vector2.one;
+                overlayRect.offsetMin = Vector2.zero;
+                overlayRect.offsetMax = Vector2.zero;
+            }
+            card.eliminatedOverlay.transform.SetAsLastSibling();
         }
 
         personalCardStyled = true;
+    }
+
+    private void LayoutStatRowIcon(Transform cardRoot, string iconName, int rowIndex)
+    {
+        Transform iconTransform = cardRoot.Find(iconName);
+        if (iconTransform == null)
+        {
+            return;
+        }
+
+        RectTransform iconRect = iconTransform.GetComponent<RectTransform>();
+        float rowCenterY = StatRowCenterY[rowIndex];
+        iconRect.anchorMin = new Vector2(StatIconLeft, rowCenterY - StatRowHalfHeight);
+        iconRect.anchorMax = new Vector2(StatIconRight, rowCenterY + StatRowHalfHeight);
+        iconRect.offsetMin = Vector2.zero;
+        iconRect.offsetMax = Vector2.zero;
+        iconRect.pivot = new Vector2(0.5f, 0.5f);
+
+        if (iconName != "HealthIcon" && iconName != "ShieldIcon")
+        {
+            EnsureIconFrame(iconTransform, IconFrameBrown);
+        }
+
+        Transform graphicTransform = iconTransform.Find("IconGraphic");
+        if (graphicTransform != null)
+        {
+            Image graphicImage = graphicTransform.GetComponent<Image>();
+            if (graphicImage != null)
+            {
+                graphicImage.preserveAspect = true;
+            }
+        }
+    }
+
+    private static void LayoutStatRowValue(Component valueComponent, int rowIndex)
+    {
+        if (valueComponent == null)
+        {
+            return;
+        }
+
+        RectTransform valueRect = valueComponent.GetComponent<RectTransform>();
+        float rowCenterY = StatRowCenterY[rowIndex];
+        valueRect.anchorMin = new Vector2(StatValueLeft, rowCenterY - StatRowHalfHeight);
+        valueRect.anchorMax = new Vector2(StatValueRight, rowCenterY + StatRowHalfHeight);
+        valueRect.offsetMin = Vector2.zero;
+        valueRect.offsetMax = Vector2.zero;
+        valueRect.pivot = new Vector2(0f, 0.5f);
+
+        Image valueImage = valueComponent.GetComponent<Image>();
+        if (valueImage != null)
+        {
+            valueImage.enabled = false;
+        }
+    }
+
+    private static void EnsurePortraitFrame(Transform cardRoot, Transform portraitTransform)
+    {
+        Transform frameTransform = cardRoot.Find("PortraitFrame");
+        if (frameTransform == null)
+        {
+            GameObject frameObject = new GameObject(
+                "PortraitFrame",
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(Image));
+            frameObject.transform.SetParent(cardRoot, false);
+            frameObject.transform.SetSiblingIndex(portraitTransform.GetSiblingIndex());
+            frameTransform = frameObject.transform;
+        }
+
+        RectTransform portraitRect = portraitTransform.GetComponent<RectTransform>();
+        RectTransform frameRect = frameTransform.GetComponent<RectTransform>();
+        frameRect.anchorMin = portraitRect.anchorMin;
+        frameRect.anchorMax = portraitRect.anchorMax;
+        frameRect.offsetMin = portraitRect.offsetMin;
+        frameRect.offsetMax = portraitRect.offsetMax;
+        frameRect.pivot = portraitRect.pivot;
+        frameRect.anchoredPosition = portraitRect.anchoredPosition;
+        frameRect.sizeDelta = portraitRect.sizeDelta;
+
+        Image frameImage = frameTransform.GetComponent<Image>();
+        frameImage.color = PortraitFrameBrown;
+        frameImage.raycastTarget = false;
+    }
+
+    private static void EnsureIconFrame(Transform iconTransform, Color frameColor)
+    {
+        Image parentImage = iconTransform.GetComponent<Image>();
+        if (parentImage == null)
+        {
+            return;
+        }
+
+        Transform legacyFrame = iconTransform.Find("IconFrame");
+        if (legacyFrame != null)
+        {
+            Object.Destroy(legacyFrame.gameObject);
+        }
+
+        Transform graphicTransform = iconTransform.Find("IconGraphic");
+        if (graphicTransform == null)
+        {
+            Sprite iconSprite = parentImage.sprite;
+
+            GameObject graphicObject = new GameObject(
+                "IconGraphic",
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(Image));
+            graphicObject.transform.SetParent(iconTransform, false);
+
+            RectTransform graphicRect = graphicObject.GetComponent<RectTransform>();
+            graphicRect.anchorMin = Vector2.zero;
+            graphicRect.anchorMax = Vector2.one;
+            graphicRect.offsetMin = new Vector2(2f, 2f);
+            graphicRect.offsetMax = new Vector2(-2f, -2f);
+
+            Image graphicImage = graphicObject.GetComponent<Image>();
+            graphicImage.sprite = iconSprite;
+            graphicImage.color = Color.white;
+            graphicImage.preserveAspect = true;
+            graphicImage.raycastTarget = false;
+        }
+
+        parentImage.sprite = null;
+        parentImage.color = frameColor;
+        parentImage.raycastTarget = false;
+    }
+
+    private static void ApplyStatValueStyle(TextMeshProUGUI text, PlayerCardUI card)
+    {
+        if (text == null)
+        {
+            return;
+        }
+
+        text.color = Color.white;
+        text.fontStyle = FontStyles.Bold;
+        text.fontSize = StatValueFontSize;
+        text.enableAutoSizing = true;
+        text.fontSizeMin = 16f;
+        text.fontSizeMax = StatValueFontSize;
+        text.alignment = TextAlignmentOptions.MidlineLeft;
+        text.raycastTarget = false;
+
+        if (card.playerNameText != null)
+        {
+            text.font = card.playerNameText.font;
+        }
     }
 
     private void EnsureStatValueTexts(PlayerCardUI card)
@@ -283,6 +481,7 @@ public class PlayerStatusHUD : MonoBehaviour
                 card.shieldLight.transform,
                 "HealthValueText",
                 card);
+            ApplyStatValueStyle(healthValueText, card);
         }
 
         if (bombValueText == null && card.bombLight != null)
@@ -291,6 +490,7 @@ public class PlayerStatusHUD : MonoBehaviour
                 card.bombLight.transform,
                 "BombValueText",
                 card);
+            ApplyStatValueStyle(bombValueText, card);
         }
     }
 
@@ -306,10 +506,11 @@ public class PlayerStatusHUD : MonoBehaviour
         {
             iconTransform.name = "HealthIcon";
             Image iconImage = iconTransform.GetComponent<Image>();
+
             if (iconImage != null)
             {
                 iconImage.sprite = null;
-                iconImage.color = new Color(0.85f, 0.15f, 0.35f, 1f);
+                iconImage.color = HpIconPink;
             }
 
             TextMeshProUGUI label = CreateStatValueText(
@@ -317,7 +518,13 @@ public class PlayerStatusHUD : MonoBehaviour
                 "HealthLabel",
                 card);
             label.text = "HP";
-            label.fontSize = 14f;
+            label.fontSize = 13f;
+            label.fontSizeMin = 10f;
+            label.fontSizeMax = 13f;
+            label.color = Color.white;
+            label.alignment = TextAlignmentOptions.Center;
+
+            LayoutStatRowIcon(card.cardParent.transform, "HealthIcon", 0);
         }
 
         healthIconConverted = true;
@@ -342,13 +549,13 @@ public class PlayerStatusHUD : MonoBehaviour
         rect.offsetMax = Vector2.zero;
 
         TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
-        text.fontSize = 18f;
+        text.fontSize = StatValueFontSize;
         text.enableAutoSizing = true;
-        text.fontSizeMin = 10f;
-        text.fontSizeMax = 18f;
+        text.fontSizeMin = 16f;
+        text.fontSizeMax = StatValueFontSize;
         text.fontStyle = FontStyles.Bold;
         text.color = Color.white;
-        text.alignment = TextAlignmentOptions.Center;
+        text.alignment = TextAlignmentOptions.MidlineLeft;
         text.raycastTarget = false;
 
         if (card.playerNameText != null)
