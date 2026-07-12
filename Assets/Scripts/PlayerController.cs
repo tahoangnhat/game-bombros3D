@@ -8,6 +8,8 @@ public class PlayerController : MonoBehaviour
     [Header("Movement")]
     public float moveSpeed = 5f;
     public float airControl = 0.5f;
+    [Tooltip("How quickly the player turns to face its movement direction, in degrees per second.")]
+    public float turnSpeed = 720f;
 
     [Header("Bomb")]
     public GameObject bombPrefab;
@@ -117,6 +119,25 @@ public class PlayerController : MonoBehaviour
         {
             rb.position = transform.position;
         }
+
+        FaceMovementDirection();
+    }
+
+    void FaceMovementDirection()
+    {
+        Vector3 faceDirection = inputDirection;
+        faceDirection.y = 0f;
+
+        if (faceDirection.sqrMagnitude <= 0.0001f)
+        {
+            return;
+        }
+
+        Quaternion targetRotation = Quaternion.LookRotation(faceDirection, Vector3.up);
+        transform.rotation = Quaternion.RotateTowards(
+            transform.rotation,
+            targetRotation,
+            turnSpeed * Time.fixedDeltaTime);
     }
 
     bool PlaceBomb()

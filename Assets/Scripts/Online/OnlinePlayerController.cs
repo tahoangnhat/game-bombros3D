@@ -151,6 +151,7 @@ public class OnlinePlayerController : NetworkBehaviour
         }
 
         PlayerMovementUtility.TryMove(transform, bodyCollider, moveStep);
+        FaceMovementDirection();
     }
 
     private void FaceMovementDirection()
