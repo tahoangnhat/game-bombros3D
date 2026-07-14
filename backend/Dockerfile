@@ -1,11 +1,11 @@
-# Bước 1: Sử dụng Maven để build project thành file .jar
-FROM maven:3.8.5-openjdk-17 AS build
+# Step 1: Build the Spring Boot application with Maven and Java 17.
+FROM maven:3.9.9-eclipse-temurin-17 AS build
 WORKDIR /app
 COPY . .
 RUN mvn clean package -DskipTests
 
-# Bước 2: Sử dụng OpenJDK siêu nhẹ để chạy ứng dụng
-FROM openjdk:17-jdk-slim
+# Step 2: Run the packaged application on a lightweight Java 17 runtime.
+FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
