@@ -1,19 +1,25 @@
 # Bombros authentication backend
 
-## Gmail configuration
+## Email configuration
 
 The registration endpoint creates the account first, then sends a success
 notification to the registered email address. If sending fails, registration
 still succeeds and the backend writes a warning to its log.
 
-Before starting the backend in PowerShell, configure the Gmail app password:
+### Render free deployment
 
-```powershell
-$env:MAIL_USERNAME = "nhatdeveloper04@gmail.com"
-$env:MAIL_PASSWORD = "your-new-gmail-app-password"
-$env:MAIL_FROM = "nhatdeveloper04@gmail.com"
-.\mvnw.cmd spring-boot:run
+For Render free, use the Brevo transactional email API instead of Gmail SMTP:
+
+```text
+MAIL_ENABLED=true
+MAIL_PROVIDER=brevo
+MAIL_FROM=your-verified-sender@example.com
+MAIL_FROM_NAME=Bombros
+BREVO_API_KEY=your-brevo-api-key
 ```
+
+`MAIL_FROM` must be a sender that is verified in Brevo.
+
 
 If Maven Wrapper is unavailable, run:
 
