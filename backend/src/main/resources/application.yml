@@ -42,6 +42,9 @@ bombros:
     brevo-api-url: ${BREVO_API_URL:https://api.brevo.com/v3/smtp/email}
 
 management:
+  health:
+    mail:
+      enabled: ${MANAGEMENT_HEALTH_MAIL_ENABLED:false}
   endpoints:
     web:
       exposure:
