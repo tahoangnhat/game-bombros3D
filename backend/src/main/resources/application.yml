@@ -1,19 +1,20 @@
 server:
-  port: 8082
+  port: ${PORT:8082}
 
 spring:
   application:
     name: bombros-auth
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/bombros_auth?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:12345}
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:mysql://localhost:3306/bombros_auth?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:root}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:12345}}
   jpa:
     hibernate:
       ddl-auto: update
     open-in-view: false
     properties:
       hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
     show-sql: false
   mail:
