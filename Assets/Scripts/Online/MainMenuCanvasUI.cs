@@ -14,15 +14,22 @@ public class MainMenuCanvasUI : MonoBehaviour
     [Header("Buttons")]
     [SerializeField] private Button createButton;
     [SerializeField] private Button joinButton;
+    [SerializeField] private Button singlePlayerButton;
 
     [Header("Scene")]
     [SerializeField] private string lobbySceneName = "LobbyScene";
+
+    [Header("Single Player")]
+    [SerializeField] private string singlePlayerLabelKeyword = "single player";
+    [SerializeField] private string comingSoonTitle = "Coming Soon";
+    [SerializeField] private string comingSoonMessage = "Single Player mode is coming soon.";
 
     [Header("Refresh")]
     [SerializeField] private float refreshInterval = 0.2f;
 
     [Header("Auto Find")]
     [SerializeField] private bool autoFindButtonsByName = true;
+    [SerializeField] private bool autoFindSinglePlayerButtonByLabel = true;
     [SerializeField] private bool autoFindJoinCodeFieldByName = true;
     [SerializeField] private string createButtonNameKeyword = "create";
     [SerializeField] private string joinButtonNameKeyword = "join";
@@ -30,6 +37,7 @@ public class MainMenuCanvasUI : MonoBehaviour
 
     private float refreshTimer;
     private Coroutine loadLobbySceneCoroutine;
+    private GameObject comingSoonPopup;
 
     private void Awake()
     {
@@ -87,6 +95,11 @@ public class MainMenuCanvasUI : MonoBehaviour
             }
         }
 
+        if (autoFindSinglePlayerButtonByLabel && singlePlayerButton == null)
+        {
+            singlePlayerButton = FindButtonByLabelKeyword(singlePlayerLabelKeyword);
+        }
+
         if (autoFindJoinCodeFieldByName && joinCodeField == null)
         {
             joinCodeField = FindInputFieldByKeyword(joinCodeFieldNameKeyword);
@@ -104,6 +117,11 @@ public class MainMenuCanvasUI : MonoBehaviour
         {
             joinButton.onClick.AddListener(OnJoinClicked);
         }
+
+        if (singlePlayerButton != null)
+        {
+            singlePlayerButton.onClick.AddListener(OnSinglePlayerClicked);
+        }
     }
 
     private void UnbindEvents()
@@ -116,6 +134,11 @@ public class MainMenuCanvasUI : MonoBehaviour
         if (joinButton != null)
         {
             joinButton.onClick.RemoveListener(OnJoinClicked);
+        }
+
+        if (singlePlayerButton != null)
+        {
+            singlePlayerButton.onClick.RemoveListener(OnSinglePlayerClicked);
         }
     }
 
@@ -198,6 +221,124 @@ public class MainMenuCanvasUI : MonoBehaviour
         SetLobbyButtonsInteractable(false);
     }
 
+    private void OnSinglePlayerClicked()
+    {
+        ShowComingSoonPopup();
+    }
+
+    private void ShowComingSoonPopup()
+    {
+        if (comingSoonPopup == null)
+        {
+            comingSoonPopup = CreateComingSoonPopup();
+        }
+
+        if (comingSoonPopup != null)
+        {
+            comingSoonPopup.SetActive(true);
+        }
+    }
+
+    private GameObject CreateComingSoonPopup()
+    {
+        Canvas targetCanvas = root != null
+            ? root.GetComponentInParent<Canvas>()
+            : FindAnyObjectByType<Canvas>(FindObjectsInactive.Include);
+
+        if (targetCanvas == null)
+        {
+            Debug.LogWarning("[Main Menu] Cannot show Coming Soon popup because no Canvas was found.");
+            return null;
+        }
+
+        GameObject overlay = new GameObject("ComingSoonPopup", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        overlay.transform.SetParent(targetCanvas.transform, false);
+        RectTransform overlayRect = overlay.GetComponent<RectTransform>();
+        overlayRect.anchorMin = Vector2.zero;
+        overlayRect.anchorMax = Vector2.one;
+        overlayRect.offsetMin = Vector2.zero;
+        overlayRect.offsetMax = Vector2.zero;
+
+        Image overlayImage = overlay.GetComponent<Image>();
+        overlayImage.color = new Color(0f, 0f, 0f, 0.55f);
+
+        GameObject panel = new GameObject("Panel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        panel.transform.SetParent(overlay.transform, false);
+        RectTransform panelRect = panel.GetComponent<RectTransform>();
+        panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+        panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.pivot = new Vector2(0.5f, 0.5f);
+        panelRect.anchoredPosition = Vector2.zero;
+        panelRect.sizeDelta = new Vector2(520f, 260f);
+
+        Image panelImage = panel.GetComponent<Image>();
+        panelImage.color = new Color(0.08f, 0.10f, 0.14f, 0.96f);
+
+        TMP_Text titleText = CreatePopupText("Title", panel.transform, comingSoonTitle, 42f, FontStyles.Bold);
+        RectTransform titleRect = titleText.GetComponent<RectTransform>();
+        titleRect.anchorMin = new Vector2(0f, 1f);
+        titleRect.anchorMax = new Vector2(1f, 1f);
+        titleRect.pivot = new Vector2(0.5f, 1f);
+        titleRect.anchoredPosition = new Vector2(0f, -34f);
+        titleRect.sizeDelta = new Vector2(-60f, 64f);
+
+        TMP_Text messageText = CreatePopupText("Message", panel.transform, comingSoonMessage, 24f, FontStyles.Normal);
+        RectTransform messageRect = messageText.GetComponent<RectTransform>();
+        messageRect.anchorMin = new Vector2(0f, 0.5f);
+        messageRect.anchorMax = new Vector2(1f, 0.5f);
+        messageRect.pivot = new Vector2(0.5f, 0.5f);
+        messageRect.anchoredPosition = new Vector2(0f, -12f);
+        messageRect.sizeDelta = new Vector2(-70f, 80f);
+
+        Button okButton = CreatePopupButton(panel.transform);
+        okButton.onClick.AddListener(() => overlay.SetActive(false));
+
+        return overlay;
+    }
+
+    private static TMP_Text CreatePopupText(string name, Transform parent, string text, float fontSize, FontStyles fontStyle)
+    {
+        GameObject textObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        textObject.transform.SetParent(parent, false);
+
+        TMP_Text tmpText = textObject.GetComponent<TMP_Text>();
+        tmpText.text = text;
+        tmpText.fontSize = fontSize;
+        tmpText.fontStyle = fontStyle;
+        tmpText.color = Color.white;
+        tmpText.alignment = TextAlignmentOptions.Center;
+        tmpText.enableWordWrapping = true;
+
+        return tmpText;
+    }
+
+    private static Button CreatePopupButton(Transform parent)
+    {
+        GameObject buttonObject = new GameObject("OkButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+        buttonObject.transform.SetParent(parent, false);
+
+        RectTransform buttonRect = buttonObject.GetComponent<RectTransform>();
+        buttonRect.anchorMin = new Vector2(0.5f, 0f);
+        buttonRect.anchorMax = new Vector2(0.5f, 0f);
+        buttonRect.pivot = new Vector2(0.5f, 0f);
+        buttonRect.anchoredPosition = new Vector2(0f, 28f);
+        buttonRect.sizeDelta = new Vector2(180f, 56f);
+
+        Image buttonImage = buttonObject.GetComponent<Image>();
+        buttonImage.color = new Color(0.95f, 0.76f, 0.22f, 1f);
+
+        Button button = buttonObject.GetComponent<Button>();
+        TMP_Text buttonText = CreatePopupText("Text", buttonObject.transform, "OK", 24f, FontStyles.Bold);
+        buttonText.color = new Color(0.08f, 0.10f, 0.14f, 1f);
+        RectTransform textRect = buttonText.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+
+        return button;
+    }
+
     private void StartLoadLobbySceneWhenReady()
     {
         if (loadLobbySceneCoroutine != null)
@@ -278,6 +419,39 @@ public class MainMenuCanvasUI : MonoBehaviour
             if (candidateName.Contains(normalizedKeyword))
             {
                 return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static Button FindButtonByLabelKeyword(string keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            return null;
+        }
+
+        TMP_Text[] labels = FindObjectsByType<TMP_Text>(FindObjectsInactive.Include);
+        string normalizedKeyword = keyword.Trim().ToLowerInvariant();
+
+        for (int i = 0; i < labels.Length; i++)
+        {
+            TMP_Text label = labels[i];
+            if (label == null || label.text == null)
+            {
+                continue;
+            }
+
+            if (!label.text.Trim().ToLowerInvariant().Contains(normalizedKeyword))
+            {
+                continue;
+            }
+
+            Button button = label.GetComponentInParent<Button>(true);
+            if (button != null)
+            {
+                return button;
             }
         }
 
