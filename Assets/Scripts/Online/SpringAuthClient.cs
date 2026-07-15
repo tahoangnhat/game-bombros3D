@@ -6,14 +6,22 @@ using UnityEngine.Networking;
 
 public class SpringAuthClient : MonoBehaviour
 {
+    private const string DefaultBaseUrl = "http://localhost:8082";
+    private const string BaseUrlPrefsKey = "bombros_spring_auth_base_url";
+    private const string BaseUrlResourceName = "spring-auth-base-url";
+    private const string BaseUrlCommandLineArg = "-bombrosAuthBaseUrl";
+    private const string BaseUrlEnvironmentVariable = "BOMBROS_AUTH_BASE_URL";
+
     [Header("Backend")]
-    [SerializeField] private string baseUrl = "http://localhost:8082";
+    [SerializeField] private string baseUrl = DefaultBaseUrl;
+    [SerializeField] private bool preferRuntimeConfiguredBaseUrl = true;
     [SerializeField] private int requestTimeoutSeconds = 20;
 
     [Header("Forgot Password")]
     [SerializeField] private float otpResendCooldownSeconds = 60f;
 
     public string StatusMessage { get; private set; } = "Ready";
+    public string ActiveBaseUrl => ResolveBaseUrl();
     public string PendingOtpEmail { get; private set; } = string.Empty;
     public bool IsBusy { get; private set; }
     public float OtpResendRemainingSeconds => Mathf.Max(0f, otpResendCooldownSeconds - (Time.unscaledTime - lastOtpRequestTime));
@@ -70,6 +78,21 @@ public class SpringAuthClient : MonoBehaviour
         SpringAuthSession.Clear();
         PendingOtpEmail = string.Empty;
         StatusMessage = "Logged out";
+    }
+
+    public void SaveBaseUrlOverride(string value)
+    {
+        string normalizedUrl = NormalizeBaseUrl(value);
+        if (string.IsNullOrWhiteSpace(normalizedUrl))
+        {
+            PlayerPrefs.DeleteKey(BaseUrlPrefsKey);
+        }
+        else
+        {
+            PlayerPrefs.SetString(BaseUrlPrefsKey, normalizedUrl);
+        }
+
+        PlayerPrefs.Save();
     }
 
     public void ClearForgotPasswordState()
@@ -364,9 +387,95 @@ public class SpringAuthClient : MonoBehaviour
 
     private string BuildUrl(string path)
     {
-        string trimmedBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "http://localhost:8082" : baseUrl.TrimEnd('/');
+        string trimmedBaseUrl = ResolveBaseUrl();
         string trimmedPath = string.IsNullOrWhiteSpace(path) ? string.Empty : path.TrimStart('/');
         return trimmedBaseUrl + "/" + trimmedPath;
+    }
+
+    private string ResolveBaseUrl()
+    {
+        if (preferRuntimeConfiguredBaseUrl)
+        {
+            string commandLineUrl = GetCommandLineBaseUrl();
+            if (!string.IsNullOrWhiteSpace(commandLineUrl))
+            {
+                return commandLineUrl;
+            }
+
+            string environmentUrl = NormalizeBaseUrl(Environment.GetEnvironmentVariable(BaseUrlEnvironmentVariable));
+            if (!string.IsNullOrWhiteSpace(environmentUrl))
+            {
+                return environmentUrl;
+            }
+
+            string savedUrl = NormalizeBaseUrl(PlayerPrefs.GetString(BaseUrlPrefsKey, string.Empty));
+            if (!string.IsNullOrWhiteSpace(savedUrl))
+            {
+                return savedUrl;
+            }
+
+            string resourceUrl = GetResourceBaseUrl();
+            if (!string.IsNullOrWhiteSpace(resourceUrl))
+            {
+                return resourceUrl;
+            }
+        }
+
+        string sceneUrl = NormalizeBaseUrl(baseUrl);
+        return string.IsNullOrWhiteSpace(sceneUrl) ? DefaultBaseUrl : sceneUrl;
+    }
+
+    private static string GetCommandLineBaseUrl()
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        for (int i = 0; i < args.Length; i++)
+        {
+            string arg = args[i];
+            if (string.Equals(arg, BaseUrlCommandLineArg, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                return NormalizeBaseUrl(args[i + 1]);
+            }
+
+            const string separator = "=";
+            string prefix = BaseUrlCommandLineArg + separator;
+            if (arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeBaseUrl(arg.Substring(prefix.Length));
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string GetResourceBaseUrl()
+    {
+        TextAsset urlAsset = Resources.Load<TextAsset>(BaseUrlResourceName);
+        if (urlAsset == null || string.IsNullOrWhiteSpace(urlAsset.text))
+        {
+            return string.Empty;
+        }
+
+        string[] lines = urlAsset.text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i].Trim();
+            if (!string.IsNullOrWhiteSpace(line) && !line.StartsWith("#", StringComparison.Ordinal))
+            {
+                return NormalizeBaseUrl(line);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string NormalizeBaseUrl(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Trim().TrimEnd('/');
     }
 
     private static T Parse<T>(string json) where T : class

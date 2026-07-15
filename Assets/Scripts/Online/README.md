@@ -22,6 +22,12 @@ Troubleshooting:
 - `Game does not exist (ErrorCode: 32758)` usually means the Fusion cloud room does not exist yet. The host must create the lobby first, or the Photon App Id is missing/invalid.
 - If host and client are in different regions, set the same `Fixed Region` in `PhotonAppSettings.asset` (for Vietnam, try `asia`).
 
+Spring backend URL:
+- Current deployed backend root URL: `https://bombros-backend.onrender.com`.
+- Edit `Assets/Resources/spring-auth-base-url.txt` if you need to switch between deployed and local backend.
+- `SpringAuthClient` uses this order: command line `-bombrosAuthBaseUrl`, environment variable `BOMBROS_AUTH_BASE_URL`, saved PlayerPrefs override, `Resources/spring-auth-base-url.txt`, then the scene `baseUrl`.
+- Keep only the root URL in the file. The game appends paths like `/api/auth/login` automatically.
+
 Notes:
 - `OnlinePlayerController` uses owner-authoritative movement and places bombs through a server RPC.
 - `OnlineBomb` and `OnlineExplosion` are server-authoritative and will work only when the prefabs are registered in the network manager.

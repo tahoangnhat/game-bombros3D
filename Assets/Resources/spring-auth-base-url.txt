@@ -1,0 +1,3 @@
+# Bombros deployed authentication backend root URL.
+# The Unity client appends paths like /api/auth/login automatically.
+https://bombros-backend.onrender.com

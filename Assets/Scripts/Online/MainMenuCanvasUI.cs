@@ -31,6 +31,7 @@ public class MainMenuCanvasUI : MonoBehaviour
     [SerializeField] private bool autoFindButtonsByName = true;
     [SerializeField] private bool autoFindSinglePlayerButtonByLabel = true;
     [SerializeField] private bool autoFindJoinCodeFieldByName = true;
+    [SerializeField] private bool autoCreateLobbyManager = true;
     [SerializeField] private string createButtonNameKeyword = "create";
     [SerializeField] private string joinButtonNameKeyword = "join";
     [SerializeField] private string joinCodeFieldNameKeyword = "code";
@@ -80,6 +81,12 @@ public class MainMenuCanvasUI : MonoBehaviour
         if (lobbyManager == null)
         {
             lobbyManager = FindAnyObjectByType<OnlineLobbyManager>(FindObjectsInactive.Include);
+        }
+
+        if (lobbyManager == null && autoCreateLobbyManager && SpringAuthSession.IsSignedIn)
+        {
+            GameObject managerObject = new GameObject("OnlineLobbyManager");
+            lobbyManager = managerObject.AddComponent<OnlineLobbyManager>();
         }
 
         if (autoFindButtonsByName)
