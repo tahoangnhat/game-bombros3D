@@ -479,6 +479,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SpringAuthClient
   baseUrl: http://localhost:8082
+  preferRuntimeConfiguredBaseUrl: 1
   requestTimeoutSeconds: 20
   otpResendCooldownSeconds: 60
 --- !u!114 &275026462
@@ -1525,7 +1526,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OnlineLobbyManager
   lobbyName: BoomBros Online
   maxPlayers: 4
-  minPlayersToStart: 2
+  minPlayersToStart: 1
   joinLobbyCode: 
   statusMessage: Initializing...
   gameSceneName: GameScene
